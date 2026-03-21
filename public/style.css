@@ -1,0 +1,428 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Abide — Shared Stylesheet
+   public/style.css
+   ═══════════════════════════════════════════════════════════════════
+   Contents:
+     • CSS custom properties (design tokens) — edit these freely
+     • Global reset
+     • Layout contract  (header / main / footer)
+     • Navigation       (hamburger trigger + menu panel + submenus)
+     • Footer bar
+     • Shared animations
+
+   Page-specific styles belong inline in each page file, not here.
+   This file is the only place visual tokens should be defined.
+
+   COLOUR SCHEME: The default palette is dark, blue-tinted.
+   Change the :root values below to retheme the entire site.
+   ═══════════════════════════════════════════════════════════════════ */
+
+
+/* ── CSS Custom Properties (Design Tokens) ──────────────────────── */
+/*
+  These are the visual knobs for Abide.
+  Every colour, spacing constant, and font stack is defined once
+  here and referenced everywhere else via var(--token-name).
+*/
+:root {
+
+  /* ── Layout ───────────────────────────────────────────────── */
+  --header-height:   3.5rem;    /* sticky header bar */
+  --footer-height:   2.75rem;   /* fixed footer bar  */
+  --main-max-width:  960px;     /* max content width in main */
+
+  /* ── Background layers — dark, blue-tinted ────────────────── */
+  --bg:   #080c0f;    /* page background */
+  --bg2:  #0d1318;    /* card / panel background */
+  --bg3:  #111920;    /* elevated surface (e.g. input field bg) */
+
+  /* ── Borders ──────────────────────────────────────────────── */
+  --border:    rgba(0, 210, 255, 0.12);   /* default border */
+  --border-hi: rgba(0, 210, 255, 0.35);   /* hover / focus border */
+
+  /* ── Accent (cyan) ────────────────────────────────────────── */
+  --accent:      #00d2ff;
+  --accent-dim:  rgba(0, 210, 255, 0.55);
+  --accent-glow: rgba(0, 210, 255, 0.08);
+
+  /* ── Text — cool off-white base ───────────────────────────── */
+  --text:        #c8d8e0;
+  --text-dim:    rgba(200, 216, 224, 0.68);
+  --text-dimmer: rgba(200, 216, 224, 0.45);
+
+  /* ── Status ───────────────────────────────────────────────── */
+  --ok:   #44dd88;    /* success / good */
+  --warn: #ffaa33;    /* caution */
+  --bad:  #ff5555;    /* error / danger */
+
+  /* ── Typography — system stacks, no external dependencies ─── */
+  --mono: ui-monospace, Menlo, Consolas, 'Courier New', monospace;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+}
+
+
+/* ── Global Reset ───────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin:  0;
+  padding: 0;
+}
+
+html {
+  height: 100%;
+  /* Prevent the page itself from scrolling — main scrolls instead.
+     This is the layout contract: chrome never moves. */
+  overflow: hidden;
+}
+
+body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 1rem;
+  line-height: 1.6;
+  /* Prevent body scroll — reinforces the layout contract */
+  overflow: hidden;
+}
+
+
+/* ── Layout Contract ────────────────────────────────────────────── */
+/*
+  Three-zone flex column:
+
+    ┌─────────────────────────────────────────┐  ← header (fixed height)
+    │ sticky header bar                       │
+    ├─────────────────────────────────────────┤
+    │                                         │
+    │ main (fills remaining space,            │
+    │       scrolls internally)               │
+    │                                         │
+    └─────────────────────────────────────────┘  ← footer (fixed, overlays)
+
+  The footer is position:fixed so it does not participate in flex
+  layout. Main compensates with padding-bottom: var(--footer-height).
+*/
+
+header {
+  /* Fills the top of the flex column — does not shrink */
+  height: var(--header-height);
+  flex-shrink: 0;
+  /* Stick to the top of the viewport even if body could scroll */
+  position: sticky;
+  top: 0;
+  z-index: 500;
+  /* Three-column grid: [trigger] [title] [right slot] */
+  /* The right slot is empty by default. Add a col-3 element and
+     change the last value from 3rem to auto to fill it. */
+  display: grid;
+  grid-template-columns: 3rem 1fr 3rem;
+  align-items: center;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+main {
+  /* Fills remaining vertical space between header and footer */
+  flex: 1;
+  min-height: 0;          /* required for flex children to scroll */
+  overflow-y: auto;
+  /* Padding so content is not hidden behind the fixed footer */
+  padding-bottom: var(--footer-height);
+  /* Horizontal padding and max-width — tweak per page if needed */
+  padding-top: 2rem;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+/* Optional: constrain content width within main */
+.main-content {
+  max-width: var(--main-max-width);
+  margin: 0 auto;
+}
+
+
+/* ── Navigation — Hamburger Trigger ────────────────────────────── */
+/*
+  Sits in header grid column 1 (left side).
+  On index.php (no header bar), this is overridden to position:fixed
+  in the page's inline <style>.
+*/
+#menu-trigger {
+  position: relative;
+  z-index: 1001;          /* above sticky header so it's always clickable */
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-self: start;
+  margin-left: 0.5rem;
+  transition: border-color 0.2s ease;
+}
+
+#menu-trigger:hover,
+#menu-trigger.open {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* The three hamburger lines */
+#menu-trigger span {
+  display: block;
+  width: 20px;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.55);
+  transform-origin: center;
+  transition: background 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+
+/* Animate hamburger → X when menu is open */
+#menu-trigger.open span:nth-child(1) { transform: translateY(5.5px)  rotate(45deg);  background: rgba(255, 255, 255, 0.85); }
+#menu-trigger.open span:nth-child(2) { opacity: 0; }
+#menu-trigger.open span:nth-child(3) { transform: translateY(-5.5px) rotate(-45deg); background: rgba(255, 255, 255, 0.85); }
+
+
+/* ── Navigation — Menu Panel ────────────────────────────────────── */
+/*
+  Hidden by default (opacity 0, pointer-events none).
+  JavaScript in nav.php adds .visible to show it.
+*/
+#nav-menu {
+  position: fixed;
+  top: var(--header-height);    /* flush with the bottom of the header */
+  left: 0.75rem;
+  z-index: 999;
+  background: rgba(8, 8, 8, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 4px;
+  min-width: 210px;
+  padding: 0.4rem 0;
+  max-height: calc(100vh - var(--header-height) - 1rem);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  /* Hidden state */
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+#nav-menu::-webkit-scrollbar               { width: 4px; }
+#nav-menu::-webkit-scrollbar-track         { background: transparent; }
+#nav-menu::-webkit-scrollbar-thumb         { background: rgba(255, 255, 255, 0.18); border-radius: 2px; }
+#nav-menu::-webkit-scrollbar-thumb:hover   { background: rgba(255, 255, 255, 0.35); }
+
+/* Visible state — added by JS */
+#nav-menu.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: all;
+}
+
+
+/* ── Navigation — Menu Items ────────────────────────────────────── */
+.menu-item {
+  position: relative;
+}
+
+.menu-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.menu-label:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Chevron — rotates 90° when submenu is open */
+.menu-label .arrow {
+  font-size: 0.5rem;
+  margin-left: 1.4rem;
+  opacity: 0.45;
+  display: inline-block;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.menu-item.open > .menu-label .arrow {
+  transform: rotate(90deg);
+  opacity: 0.9;
+}
+
+
+/* ── Navigation — Submenus (accordion) ──────────────────────────── */
+.submenu {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.28s ease;
+}
+
+.submenu.open {
+  max-height: 1400px;   /* large enough for any realistic submenu */
+}
+
+/* Section headings inside submenus */
+.submenu-heading {
+  padding: 0.55rem 1rem 0.2rem 1.5rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.52);
+}
+
+/* Nav links */
+.submenu a {
+  display: block;
+  padding: 0.28rem 1rem 0.28rem 1.6rem;
+  font-size: 0.71rem;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.72);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.12s ease, padding-left 0.12s ease;
+}
+
+.submenu a:hover {
+  color: #fff;
+  padding-left: 1.9rem;
+}
+
+/* Second-level indented links */
+.submenu a.l2 {
+  padding-left: 2.2rem;
+  font-size: 0.66rem;
+  color: rgba(255, 255, 255, 0.60);
+}
+
+.submenu a.l2:hover {
+  padding-left: 2.5rem;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* Horizontal rule between submenu sections */
+.submenu-divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  margin: 0.35rem 0.9rem;
+}
+
+
+/* ── Page Title (header, column 2) ─────────────────────────────── */
+.page-title {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent-dim);
+  padding-left: 0.5rem;   /* breathing room from the hamburger */
+  /* Truly center the title within the header grid.
+     The right column mirrors the left column width (3rem each),
+     so text-align: center is sufficient here. */
+  text-align: center;
+  justify-self: center;
+}
+
+
+/* ── Footer Bar ─────────────────────────────────────────────────── */
+footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--footer-height);
+  padding: 0 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(8, 12, 15, 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  z-index: 400;
+}
+
+/* Left: site name — links home */
+.footer-home a {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(200, 216, 224, 0.45);
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.footer-home a:hover {
+  opacity: 1;
+  color: var(--accent-dim);
+}
+
+/* Centre: copyright line */
+.footer-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  color: rgba(200, 216, 224, 0.48);
+  text-align: center;
+  flex: 1;
+}
+
+/* Right: visitor info (IP, browser) */
+.visitor-info {
+  display: flex;
+  gap: 1.5rem;
+  flex-shrink: 0;
+}
+
+.info-item {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  color: rgba(200, 216, 224, 0.55);
+  white-space: nowrap;
+}
+
+.info-item .label {
+  color: rgba(200, 216, 224, 0.42);
+  margin-right: 0.3em;
+}
+
+.info-item .value {
+  color: rgba(200, 216, 224, 0.62);
+}
+
+
+/* ── Responsive — narrow screens ───────────────────────────────── */
+@media (max-width: 600px) {
+  /* Hide the right visitor info pane on small screens */
+  .visitor-info { display: none; }
+}
+
+
+/* ── Shared Animations ──────────────────────────────────────────── */
+@keyframes fadeUp   { from { opacity: 0; transform: translateY(10px);  } to { opacity: 1; transform: none; } }
+@keyframes fadeDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }

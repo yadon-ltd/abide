@@ -1,0 +1,117 @@
+# ══════════════════════════════════════════════════════════════
+# Abide — public/.htaccess
+# ══════════════════════════════════════════════════════════════
+# This file lives in public/, which is the web root.
+# The project root (one level up) is NOT web-accessible.
+
+
+# ── Request bootstrap ──────────────────────────────────────────
+# Runs core/init.php before every PHP request, before any output.
+# This ensures session_start() fires at the right time regardless
+# of which page loads first.
+#
+# ⚠ PATH NOTE: auto_prepend_file requires the path to resolve
+# correctly on your server. On shared hosting, you may need to
+# replace this with an absolute server path, e.g.:
+#   php_value auto_prepend_file /home/username/abide/core/init.php
+#
+# On most Apache + PHP-FPM setups, relative paths work fine.
+php_value auto_prepend_file "../core/init.php"
+
+
+# ── Security Headers ───────────────────────────────────────────
+# Content-Security-Policy: permits same-origin scripts, styles,
+# images, and form submissions. Allows the ipify.org API used
+# by footer.php to detect visitor IP addresses.
+#
+# Adjust connect-src if you add other external API calls.
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.ipify.org https://api64.ipify.org; form-action 'self'; frame-ancestors 'none';"
+</IfModule>
+
+
+# ── Custom Error Pages ─────────────────────────────────────────
+# Create these files in public/ when you're ready.
+# ErrorDocument 400 /400.php
+# ErrorDocument 403 /403.php
+# ErrorDocument 404 /404.php
+# ErrorDocument 500 /500.php
+
+
+# ── Rewrite Engine ─────────────────────────────────────────────
+RewriteEngine On
+
+
+# ── Clean URL Routing ──────────────────────────────────────────
+# Files in public/pages/ get clean URLs automatically.
+# pages/about.php is served at yourdomain.com/about
+#
+# Rules:
+#   • Only fires if the request is not an existing file or directory
+#   • Only fires if the corresponding pages/*.php file exists
+#   • Allows optional trailing slash
+#   • Allows only URL-safe characters: a-z, 0-9, hyphens, underscores
+#
+# Examples:
+#   /about      → pages/about.php
+#   /contact/   → pages/contact.php
+#   /my-page    → pages/my-page.php
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{DOCUMENT_ROOT}/pages/%1.php -f
+RewriteRule ^([a-z0-9_-]+)/?$ pages/$1.php [L]
+
+
+# ── Bot / User-Agent Blocking ──────────────────────────────────
+# Blocks crawlers, scrapers, AI trainers, and scanners.
+# Remove or adjust as needed for your project.
+#
+# To allow a specific bot, add a pass-through rule BEFORE the
+# block rule:
+#   RewriteCond %{HTTP_USER_AGENT} Googlebot [NC]
+#   RewriteRule ^ - [L]
+
+# Block known bots, scrapers, and scanners
+RewriteCond %{HTTP_USER_AGENT} (Googlebot|bingbot|Slurp|YandexBot|Baiduspider|GPTBot|ChatGPT-User|Google-Extended|CCBot|anthropic-ai|Claude-Web|cohere-ai|PerplexityBot|AhrefsBot|SemrushBot|DotBot|MJ12bot|DataForSeoBot|PetalBot|Bytespider|Nikto|sqlmap|masscan|WPScan|libwww-perl|python-requests|python-urllib|Go-http-client|curl|Wget|HTTrack|Scrapy|bot|crawler|spider|scraper) [NC]
+RewriteRule ^ - [F,L]
+
+# Block empty or missing User-Agent
+RewriteCond %{HTTP_USER_AGENT} ^-?$
+RewriteRule ^ - [F,L]
+
+
+# ── Sensitive File Protection ──────────────────────────────────
+# Deny direct HTTP access to files that should never be served.
+# init.php and db.php also self-exit on direct access (belt + suspenders).
+
+# Block core PHP internals from direct browser access
+<FilesMatch "^(init|db|auth)\.php$">
+  Require all denied
+</FilesMatch>
+
+# Block dotfiles (.env, .git, etc.)
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+
+# Block the entire core/ and modules/ directories
+# (these live above public/ anyway, but protect against misconfiguration)
+<IfModule mod_rewrite.c>
+  RewriteRule ^(core|modules)(/|$) - [F,L]
+</IfModule>
+
+
+# ── IP Blocking ────────────────────────────────────────────────
+# Block individual IPs or CIDR ranges.
+# Uncomment and add entries as needed.
+#
+# <RequireAll>
+#   Require all granted
+#   Require not ip 1.2.3.4
+#   Require not ip 10.0.0.0/8
+# </RequireAll>
