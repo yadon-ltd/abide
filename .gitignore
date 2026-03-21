@@ -49,3 +49,6 @@ desktop.ini
 # /setup/
 modules/auth/schema.sql
 modules/auth/phpmailer/
+modules/settings/schema.sql
+modules/auth/schema.sql
+modules/settings/schema.sql
