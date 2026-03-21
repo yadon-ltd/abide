@@ -10,6 +10,8 @@
     2. Define path constants for use throughout the project
     3. Start the session with secure settings
     4. Load core/db.php if a database is configured
+    5. Load modules/settings/settings.php if a database is configured
+    6. Load modules/auth/auth.php if AUTH_ENABLED = true
 
   Do not include this file manually — .htaccess handles it.
   ──────────────────────────────────────────────────────────────
@@ -62,6 +64,15 @@ if (session_status() === PHP_SESSION_NONE) {
 // This keeps the scaffold functional for projects that don't need a DB.
 if (defined('DB_NAME') && DB_NAME !== '') {
     require_once ABIDE_CORE . '/db.php';
+}
+
+
+// ── Settings module ───────────────────────────────────────────
+// Provides settings_get(), settings_set(), settings_get_all(), and
+// settings_get_css() for DB-backed site configuration.
+// Only loaded when the DB is configured — settings require a connection.
+if (defined('DB_NAME') && DB_NAME !== '') {
+    require_once ABIDE_ROOT . '/modules/settings/settings.php';
 }
 
 

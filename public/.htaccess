@@ -21,9 +21,9 @@ php_value auto_prepend_file /home/yadoaoco/abide/core/init.php
 
 
 # ── Custom Error Pages ─────────────────────────────────────────
+ErrorDocument 404 /404.php
 # ErrorDocument 400 /400.php
 # ErrorDocument 403 /403.php
-# ErrorDocument 404 /404.php
 # ErrorDocument 500 /500.php
 
 

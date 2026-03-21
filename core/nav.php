@@ -22,6 +22,13 @@
 // Determine current page so we can show/hide the Home link
 $_nav_current = basename($_SERVER['PHP_SELF']);
 $_nav_show_home = ($_nav_current !== 'index.php');
+
+// Resolve the current user once for this nav render.
+// auth_user() is only available when AUTH_ENABLED = true and the
+// auth module is loaded. Guard every reference with function_exists().
+$_nav_user = (defined('AUTH_ENABLED') && AUTH_ENABLED && function_exists('auth_user'))
+    ? auth_user()
+    : null;
 ?>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -122,17 +129,27 @@ $_nav_show_home = ($_nav_current !== 'index.php');
   <!-- ── Bottom divider + utility links ─────────────────────── -->
   <hr class="submenu-divider" style="margin: 0.4rem 0.9rem;" />
 
-  <?php if (defined('AUTH_ENABLED') && AUTH_ENABLED && function_exists('auth_user')): ?>
-    <?php $__nav_user = auth_user(); ?>
-    <?php if ($__nav_user): ?>
-      <div class="menu-item">
-        <a class="menu-label" href="/logout" style="text-decoration:none;">Sign out</a>
-      </div>
-    <?php else: ?>
-      <div class="menu-item">
-        <a class="menu-label" href="/login" style="text-decoration:none;">Sign in</a>
-      </div>
+  <?php if ($_nav_user): ?>
+
+    <?php if ($_nav_user['permissions'] & PERM_HEADEND): ?>
+    <!-- Admin link — visible to PERM_HEADEND only -->
+    <div class="menu-item">
+      <a class="menu-label" href="/admin" style="text-decoration:none;">
+        Configuration
+      </a>
+    </div>
     <?php endif; ?>
+
+    <div class="menu-item">
+      <a class="menu-label" href="/logout" style="text-decoration:none;">Sign out</a>
+    </div>
+
+  <?php else: ?>
+
+    <div class="menu-item">
+      <a class="menu-label" href="/login" style="text-decoration:none;">Sign in</a>
+    </div>
+
   <?php endif; ?>
 
 </nav><!-- /#nav-menu -->

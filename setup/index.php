@@ -21,8 +21,9 @@
 
   FLOW:
     Step 1  — Site (name, base URL)
-    Step 2  — Auth (on/off + SMTP credentials if enabled)
-    Step 3  — Review → writes config.php
+    Step 2  — Database (credentials)
+    Step 3  — Auth (on/off + SMTP credentials if enabled)
+    Step 4  — Review → writes config.php
     Done    — Success screen with next-step checklist
 
   STATE:
@@ -56,28 +57,20 @@ $is_locked = file_exists(CONFIG_FILE);
 
 // ── Done screen ───────────────────────────────────────────────
 // Set via ?done=1 redirect after successful config write.
-// Note: config.php exists at this point (write succeeded), so
-// $is_locked is true. We check ?done=1 BEFORE the locked gate
-// to give the done screen priority on this one redirect.
 $is_done = $is_locked && isset($_GET['done']);
 
 // ── Step routing ──────────────────────────────────────────────
-// Clamp step to valid range 1–3. Locked and done states bypass
+// Clamp step to valid range 1–4. Locked and done states bypass
 // step rendering entirely.
 $step = $is_locked ? 0 : (int) ($_GET['step'] ?? 1);
-$step = max(1, min(3, $step));
+$step = max(1, min(4, $step));
 
 // ── Initialize session bucket ────────────────────────────────
-// Ensure the session key is always an array before reading from it.
 if (!isset($_SESSION['wizard']) || !is_array($_SESSION['wizard'])) {
     $_SESSION['wizard'] = [];
 }
 
 // ── POST handlers ─────────────────────────────────────────────
-// Validate → store in session → redirect (PRG pattern).
-// On validation failure, errors are stored in session and the
-// page re-renders the current step with error messages inline.
-
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_locked && !$is_done) {
@@ -90,7 +83,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_locked && !$is_done) {
         $site_name = trim($_POST['site_name'] ?? '');
         $site_url  = rtrim(trim($_POST['site_url'] ?? ''), '/');
 
-        // Validate
         if ($site_name === '') {
             $errors[] = 'Site name is required.';
         }
@@ -108,30 +100,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_locked && !$is_done) {
         }
     }
 
-    // ── Step 2: Auth module + SMTP ────────────────────────────
+    // ── Step 2: Database ──────────────────────────────────────
     if ($posted_step === 2) {
 
-        // Checkbox: present = true, absent = false
+        $db_enabled = !empty($_POST['db_enabled']);
+        $db_host    = trim($_POST['db_host'] ?? 'localhost');
+        $db_name    = trim($_POST['db_name'] ?? '');
+        $db_user    = trim($_POST['db_user'] ?? '');
+        $db_pass    =       $_POST['db_pass'] ?? '';   // preserve as-is
+        $db_char    = 'utf8mb4';
+
+        // DB fields are only required when DB is enabled
+        if ($db_enabled) {
+            if ($db_name === '') $errors[] = 'Database name is required.';
+            if ($db_user === '') $errors[] = 'Database username is required.';
+        }
+
+        if (empty($errors)) {
+            $_SESSION['wizard']['db_enabled'] = $db_enabled;
+            $_SESSION['wizard']['db_host']    = $db_host ?: 'localhost';
+            $_SESSION['wizard']['db_name']    = $db_name;
+            $_SESSION['wizard']['db_user']    = $db_user;
+            $_SESSION['wizard']['db_pass']    = $db_pass;
+            header('Location: ?step=3');
+            exit;
+        }
+    }
+
+    // ── Step 3: Auth module + SMTP ────────────────────────────
+    if ($posted_step === 3) {
+
         $auth_enabled = !empty($_POST['auth_enabled']);
 
         $smtp_host = trim($_POST['smtp_host'] ?? '');
         $smtp_user = trim($_POST['smtp_user'] ?? '');
-        $smtp_pass =       $_POST['smtp_pass'] ?? '';   // preserve as-is, no trim
+        $smtp_pass =       $_POST['smtp_pass'] ?? '';
         $smtp_port = (int)($_POST['smtp_port'] ?? 465);
         $smtp_from = trim($_POST['smtp_from'] ?? '');
         $smtp_name = trim($_POST['smtp_name'] ?? '');
 
-        // SMTP fields are only required when auth is enabled
         if ($auth_enabled) {
-            if ($smtp_host === '') {
-                $errors[] = 'SMTP host is required when auth is enabled.';
-            }
-            if ($smtp_user === '') {
-                $errors[] = 'SMTP username is required.';
-            }
-            if ($smtp_pass === '') {
-                $errors[] = 'SMTP password is required.';
-            }
+            if ($smtp_host === '') $errors[] = 'SMTP host is required when auth is enabled.';
+            if ($smtp_user === '') $errors[] = 'SMTP username is required.';
+            if ($smtp_pass === '') $errors[] = 'SMTP password is required.';
             if ($smtp_from === '') {
                 $errors[] = 'SMTP From address is required.';
             } elseif (!filter_var($smtp_from, FILTER_VALIDATE_EMAIL)) {
@@ -150,25 +161,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_locked && !$is_done) {
             $_SESSION['wizard']['smtp_port']    = $smtp_port;
             $_SESSION['wizard']['smtp_from']    = $smtp_from;
             $_SESSION['wizard']['smtp_name']    = $smtp_name;
-            header('Location: ?step=3');
+            header('Location: ?step=4');
             exit;
         }
     }
 
-    // ── Step 3: Write config.php ──────────────────────────────
-    if ($posted_step === 3) {
+    // ── Step 4: Write config.php ──────────────────────────────
+    if ($posted_step === 4) {
 
-        // Guard: require step 1 data. If the session expired or was
-        // cleared, restart from the beginning rather than writing
-        // a malformed config.
         $w = $_SESSION['wizard'];
         if (empty($w['site_name']) || empty($w['site_url'])) {
             header('Location: ?step=1');
             exit;
         }
 
-        // ── Build config.php content ───────────────────────────
-        // var_export() handles quoting and escaping of string values.
         $auth_val  = !empty($w['auth_enabled']) ? 'true' : 'false';
         $timestamp = date('Y-m-d H:i:s');
 
@@ -183,38 +189,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_locked && !$is_done) {
         $cfg .= "*/\n";
         $cfg .= "\n";
 
+        // ── Setup flag ──────────────────────────────────────────
         $cfg .= "// ── Setup ────────────────────────────────────────────────────\n";
-        $cfg .= "// Written by the setup wizard. The wizard checks for this flag\n";
-        $cfg .= "// on every entry and locks itself if config.php exists.\n";
         $cfg .= "define('SETUP_COMPLETE', true);\n";
         $cfg .= "\n";
 
-        // ── Site Identity ──────────────────────────────────────────
-        // SITE_TAGLINE is not collected by the wizard (it's optional).
-        // The developer can fill it in manually after setup.
+        // ── Site Identity ──────────────────────────────────────
         $cfg .= "// ── Site Identity ─────────────────────────────────────────────\n";
         $cfg .= "define('SITE_NAME',    " . var_export($w['site_name'], true) . ");\n";
         $cfg .= "define('SITE_URL',     " . var_export($w['site_url'],  true) . ");\n";
         $cfg .= "define('SITE_TAGLINE', '');   // optional — shown on the home page\n";
         $cfg .= "\n";
 
-        // ── Database ───────────────────────────────────────────────
-        // The wizard does not collect DB credentials in v1.
-        // Fill these in manually if your project uses a database.
-        // core/init.php skips loading db.php when DB_NAME is blank.
+        // ── Database ───────────────────────────────────────────
         $cfg .= "// ── Database ──────────────────────────────────────────────────\n";
         $cfg .= "// Leave DB_NAME empty ('') to skip the database entirely.\n";
-        $cfg .= "define('DB_HOST', 'localhost');\n";
-        $cfg .= "define('DB_NAME', '');          // '' = database disabled\n";
-        $cfg .= "define('DB_USER', '');\n";
-        $cfg .= "define('DB_PASS', '');\n";
-        $cfg .= "define('DB_CHAR', 'utf8mb4');\n";
+        if (!empty($w['db_enabled'])) {
+            $cfg .= "define('DB_HOST', " . var_export($w['db_host'], true) . ");\n";
+            $cfg .= "define('DB_NAME', " . var_export($w['db_name'], true) . ");\n";
+            $cfg .= "define('DB_USER', " . var_export($w['db_user'], true) . ");\n";
+            $cfg .= "define('DB_PASS', " . var_export($w['db_pass'], true) . ");\n";
+            $cfg .= "define('DB_CHAR', 'utf8mb4');\n";
+        } else {
+            $cfg .= "define('DB_HOST', 'localhost');\n";
+            $cfg .= "define('DB_NAME', '');          // '' = database disabled\n";
+            $cfg .= "define('DB_USER', '');\n";
+            $cfg .= "define('DB_PASS', '');\n";
+            $cfg .= "define('DB_CHAR', 'utf8mb4');\n";
+        }
         $cfg .= "\n";
 
-        // ── SMTP ───────────────────────────────────────────────────
-        // Always emit all SMTP constants so the file is complete.
-        // When auth is disabled, fields are written as empty strings.
-        // SMTP_NAME falls back to SITE_NAME constant if left blank.
+        // ── SMTP ───────────────────────────────────────────────
         $cfg .= "// ── Email / SMTP ─────────────────────────────────────────────\n";
         $cfg .= "// Only required if AUTH_ENABLED is true.\n";
         $cfg .= "// Port 465 = SSL   |   Port 587 = TLS (STARTTLS)\n";
@@ -224,14 +229,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_locked && !$is_done) {
             $cfg .= "define('SMTP_PASS', " . var_export($w['smtp_pass'], true) . ");\n";
             $cfg .= "define('SMTP_PORT', " . (int) $w['smtp_port'] . ");\n";
             $cfg .= "define('SMTP_FROM', " . var_export($w['smtp_from'], true) . ");\n";
-            // SMTP_NAME: use entered value, fall back to SITE_NAME constant (not string)
             if (!empty($w['smtp_name'])) {
                 $cfg .= "define('SMTP_NAME', " . var_export($w['smtp_name'], true) . ");\n";
             } else {
                 $cfg .= "define('SMTP_NAME', SITE_NAME);  // falls back to site name\n";
             }
         } else {
-            // Auth disabled — write empty placeholders so the file is complete
             $cfg .= "define('SMTP_HOST', '');\n";
             $cfg .= "define('SMTP_USER', '');\n";
             $cfg .= "define('SMTP_PASS', '');\n";
@@ -241,67 +244,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_locked && !$is_done) {
         }
         $cfg .= "\n";
 
-        // ── Auth ───────────────────────────────────────────────────
+        // ── Auth ───────────────────────────────────────────────
         $cfg .= "// ── Auth Module ───────────────────────────────────────────────\n";
         $cfg .= "// Set to true only after modules/auth/ is in place and the\n";
         $cfg .= "// schema has been imported. Requires DB and SMTP above.\n";
         $cfg .= "define('AUTH_ENABLED', {$auth_val});\n";
         $cfg .= "\n";
 
-        // ── Navigation ─────────────────────────────────────────────
+        // ── Navigation ─────────────────────────────────────────
         $cfg .= "// ── Navigation ────────────────────────────────────────────────\n";
         $cfg .= "// 'hamburger' is the only option in v1.\n";
         $cfg .= "define('NAV_STYLE', 'hamburger');\n";
         $cfg .= "\n";
 
+        // ── Header Branding ────────────────────────────────────
+        // Written with defaults — developer customises after setup.
+        // LOGO_MODE options: 'page_title' | 'logo' | 'wordmark' | 'both'
+        $cfg .= "// ── Header Branding ──────────────────────────────────────────\n";
+        $cfg .= "// Controls the centre column of the site header.\n";
+        $cfg .= "// 'page_title' = current page name (default)\n";
+        $cfg .= "// 'logo'       = logo image only\n";
+        $cfg .= "// 'wordmark'   = SITE_NAME text only\n";
+        $cfg .= "// 'both'       = logo + SITE_NAME text side by side\n";
+        $cfg .= "define('LOGO_MODE', 'page_title');\n";
+        $cfg .= "define('LOGO_FILE', '/assets/img/logo.png');   // web-root-relative path\n";
+        $cfg .= "define('LOGO_ALT',  SITE_NAME);                // defaults to site name\n";
+        $cfg .= "\n";
+
         // ── Write the file ─────────────────────────────────────
-        // @ suppresses the PHP warning — we check the return value.
         $write_result = @file_put_contents(CONFIG_FILE, $cfg);
 
         if ($write_result === false) {
-            // Write failed — usually a permissions problem.
-            // Store the generated content so the developer can copy it manually.
             $_SESSION['wizard']['manual_config'] = $cfg;
             $errors[] = 'Could not write config.php — the web server may not have write permission on the project root.';
             $errors[] = 'Fix the permissions and click "Write config.php" again, or copy the generated content below and save it manually as config.php in the project root, then refresh this page.';
         } else {
-            // Success — clear wizard session data and go to done screen.
             $_SESSION['wizard'] = [];
             header('Location: ?done=1');
             exit;
         }
     }
 
-    // Store errors in session for display on the re-rendered step.
-    // (We fall through to the HTML below rather than redirecting on
-    //  error, which keeps POST data available for form repopulation.)
     if (!empty($errors)) {
         $_SESSION['wizard']['errors'] = $errors;
     }
 }
 
 // ── Retrieve and clear session errors ────────────────────────
-// Pull from session so they survive the PRG redirect on step
-// boundaries, then clear so they don't repeat on a later reload.
 $errors = $_SESSION['wizard']['errors'] ?? [];
 unset($_SESSION['wizard']['errors']);
 
-// ── Manual config content (step 3 write failure) ─────────────
+// ── Manual config content (step 4 write failure) ─────────────
 $manual_config = $_SESSION['wizard']['manual_config'] ?? '';
 
 // ── Helpers ───────────────────────────────────────────────────
-
-/**
- * HTML-safe output. Use on every value echoed into HTML.
- */
 function esc(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 }
 
-/**
- * Repopulate a form field from the wizard session bucket.
- * Returns an HTML-safe string; safe to echo directly into value="".
- */
 function wval(string $key, string $default = ''): string {
     return esc($_SESSION['wizard'][$key] ?? $default);
 }
@@ -313,35 +313,25 @@ function wval(string $key, string $default = ''): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Setup &mdash; Abide</title>
 
-  <!--
-    setup/index.php — Abide setup wizard
-    ─────────────────────────────────────────────────────────────
-    Standalone page — no dependency on core/, public/style.css,
-    or any other Abide infrastructure. Uses the same CSS custom
-    property names as the main project for visual consistency.
-    ─────────────────────────────────────────────────────────────
-  -->
-
   <style>
     /* ── Reset ───────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     /* ── CSS custom properties ───────────────────────────────── */
-    /* Mirrors the token names in public/style.css so the visual  */
-    /* language stays consistent if you override them there later. */
+    /* Amber palette — matches the main site default.            */
     :root {
-      --bg:          #0d0f12;
-      --bg2:         #13161b;
-      --bg3:         #1a1e25;
-      --border:      rgba(255,255,255,0.08);
-      --border-hi:   rgba(255,255,255,0.18);
-      --accent:      #00d2ff;
-      --accent-dim:  rgba(0,210,255,0.15);
-      --text:        #e8eaf0;
-      --text-dim:    rgba(232,234,240,0.55);
-      --ok:          #4caf7d;
-      --warn:        #f0b429;
-      --bad:         #e05252;
+      --bg:          #0c0b09;
+      --bg2:         #131210;
+      --bg3:         #1a1916;
+      --border:      rgba(255, 179, 64, 0.12);
+      --border-hi:   rgba(255, 179, 64, 0.30);
+      --accent:      #ffb340;
+      --accent-dim:  rgba(255, 179, 64, 0.15);
+      --text:        #d8cfc4;
+      --text-dim:    rgba(216, 207, 196, 0.62);
+      --ok:          #44dd88;
+      --warn:        #ffaa33;
+      --bad:         #ff5555;
       --mono:        ui-monospace, Menlo, Consolas, 'Courier New', monospace;
       --sans:        system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
@@ -361,8 +351,8 @@ function wval(string $key, string $default = ''): string {
       padding: 3.5rem 1.5rem 6rem;
       /* Subtle dot grid — matches the main site aesthetic */
       background-image:
-        linear-gradient(rgba(0,210,255,0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0,210,255,0.025) 1px, transparent 1px);
+        linear-gradient(rgba(255, 179, 64, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 179, 64, 0.025) 1px, transparent 1px);
       background-size: 40px 40px;
     }
 
@@ -421,7 +411,7 @@ function wval(string $key, string $default = ''): string {
       transition: background 0.2s, border-color 0.2s, color 0.2s;
     }
     .step-dot.active   { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-    .step-dot.complete { background: rgba(76,175,125,0.15); border-color: var(--ok); color: var(--ok); }
+    .step-dot.complete { background: rgba(68, 221, 136, 0.12); border-color: var(--ok); color: var(--ok); }
     .step-label {
       font-size: 0.68rem;
       font-family: var(--mono);
@@ -433,7 +423,7 @@ function wval(string $key, string $default = ''): string {
       height: 1px;
       background: var(--border);
       margin: 0 0.5rem;
-      margin-bottom: 1.1rem; /* align with dots, above labels */
+      margin-bottom: 1.1rem;
     }
 
     /* ── Form panel ──────────────────────────────────────────── */
@@ -495,7 +485,7 @@ function wval(string $key, string $default = ''): string {
     input:focus { border-color: var(--accent); }
     input[type="number"] { width: 110px; }
 
-    /* ── Auth toggle ─────────────────────────────────────────── */
+    /* ── Toggle switch (checkbox) ────────────────────────────── */
     .toggle-row {
       display: flex;
       align-items: flex-start;
@@ -503,7 +493,6 @@ function wval(string $key, string $default = ''): string {
       padding: 0.5rem 0;
     }
 
-    /* Custom toggle switch (checkbox) */
     input[type="checkbox"].toggle {
       -webkit-appearance: none;
       appearance: none;
@@ -548,13 +537,13 @@ function wval(string $key, string $default = ''): string {
       color: var(--text-dim);
     }
 
-    /* ── SMTP sub-section ────────────────────────────────────── */
-    .smtp-section {
+    /* ── DB and SMTP sub-sections ────────────────────────────── */
+    .sub-section {
       margin-top: 1.25rem;
       padding-top: 1.25rem;
       border-top: 1px solid var(--border);
     }
-    .smtp-label {
+    .sub-section-label {
       font-size: 0.68rem;
       font-family: var(--mono);
       letter-spacing: 0.1em;
@@ -572,8 +561,8 @@ function wval(string $key, string $default = ''): string {
 
     /* ── Error list ──────────────────────────────────────────── */
     .error-list {
-      background: rgba(224,82,82,0.08);
-      border: 1px solid rgba(224,82,82,0.28);
+      background: rgba(255, 85, 85, 0.08);
+      border: 1px solid rgba(255, 85, 85, 0.28);
       border-radius: 6px;
       padding: 0.85rem 1rem;
       margin-bottom: 1.5rem;
@@ -624,7 +613,7 @@ function wval(string $key, string $default = ''): string {
     .badge-off { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); }
     .masked    { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); letter-spacing: 0.08em; }
 
-    /* ── Manual copy fallback (step 3 write failure) ─────────── */
+    /* ── Manual copy fallback ────────────────────────────────── */
     .manual-copy { margin-top: 1.5rem; }
     .manual-copy-label {
       font-size: 0.75rem;
@@ -677,7 +666,7 @@ function wval(string $key, string $default = ''): string {
       border-color: var(--accent);
       color: var(--accent);
     }
-    .btn-primary:hover { background: rgba(0,210,255,0.25); }
+    .btn-primary:hover { background: rgba(255, 179, 64, 0.25); }
     .btn-back {
       border: none;
       background: none;
@@ -712,7 +701,7 @@ function wval(string $key, string $default = ''): string {
       font-size: 0.68rem;
       color: var(--accent);
       background: var(--accent-dim);
-      border: 1px solid rgba(0,210,255,0.2);
+      border: 1px solid rgba(255, 179, 64, 0.2);
       border-radius: 50%;
       width: 20px; height: 20px;
       display: flex;
@@ -730,8 +719,8 @@ function wval(string $key, string $default = ''): string {
       padding: 0.1em 0.35em;
     }
     .locked-notice {
-      background: rgba(240,180,41,0.07);
-      border: 1px solid rgba(240,180,41,0.22);
+      background: rgba(255, 170, 51, 0.07);
+      border: 1px solid rgba(255, 170, 51, 0.22);
       border-radius: 6px;
       padding: 0.85rem 1rem;
       margin-bottom: 1.5rem;
@@ -768,8 +757,7 @@ function wval(string $key, string $default = ''): string {
 
   <?php if ($is_locked && !$is_done): ?>
   <!-- ═══════════════════════════════════════════════════════════
-       LOCKED — config.php already exists in the project root.
-       The wizard will not proceed until config.php is deleted.
+       LOCKED
   ════════════════════════════════════════════════════════════ -->
   <div class="locked-notice">
     <strong>Setup has already run.</strong> config.php was found in the project root.
@@ -785,7 +773,7 @@ function wval(string $key, string $default = ''): string {
 
   <?php elseif ($is_done): ?>
   <!-- ═══════════════════════════════════════════════════════════
-       DONE — config.php written successfully.
+       DONE
   ════════════════════════════════════════════════════════════ -->
   <div class="form-panel">
     <div style="text-align:center; margin-bottom:1.25rem;">
@@ -805,11 +793,15 @@ function wval(string $key, string $default = ''): string {
       </div>
       <div class="next-step">
         <span class="step-num">3</span>
-        <span>If the auth module is enabled, drop PHPMailer into <code>modules/auth/phpmailer/src/</code> and run the schema from <code>modules/auth/schema.sql</code> against your database.</span>
+        <span>If the database is enabled, import <code>modules/settings/schema.sql</code> to create the settings table. This enables the admin configuration page at <code>/admin</code>.</span>
       </div>
       <div class="next-step">
         <span class="step-num">4</span>
-        <span>Start building in <code>public/pages/</code>. Any file at <code>pages/about.php</code> is reachable at <code>/about</code> with no routing config required.</span>
+        <span>If the auth module is enabled, drop PHPMailer into <code>modules/auth/phpmailer/src/</code> and import <code>modules/auth/schema.sql</code> against your database.</span>
+      </div>
+      <div class="next-step">
+        <span class="step-num">5</span>
+        <span>Start building in <code>public/pages/</code>. Any file at <code>pages/about.php</code> is reachable at <code>/about</code> — no routing config required.</span>
       </div>
     </div>
   </div>
@@ -818,10 +810,9 @@ function wval(string $key, string $default = ''): string {
   <!-- ═══════════════════════════════════════════════════════════
        STEP INDICATOR
   ════════════════════════════════════════════════════════════ -->
-  <div class="step-indicator" aria-label="Setup progress, step <?= $step ?> of 3">
+  <div class="step-indicator" aria-label="Setup progress, step <?= $step ?> of 4">
     <?php
-    // $step_labels maps step number to display name.
-    $step_labels = [1 => 'Site', 2 => 'Auth', 3 => 'Review'];
+    $step_labels = [1 => 'Site', 2 => 'Database', 3 => 'Auth', 4 => 'Review'];
     foreach ($step_labels as $n => $label):
         $cls = $n < $step ? 'complete' : ($n === $step ? 'active' : '');
     ?>
@@ -835,7 +826,7 @@ function wval(string $key, string $default = ''): string {
     <?php endforeach; ?>
   </div>
 
-  <!-- Error display — shared across all steps -->
+  <!-- Error display -->
   <?php if (!empty($errors)): ?>
   <div class="error-list" role="alert">
     <?php foreach ($errors as $e): ?>
@@ -853,7 +844,7 @@ function wval(string $key, string $default = ''): string {
     <input type="hidden" name="wizard_step" value="1">
 
     <div class="form-panel">
-      <div class="panel-title">Step 1 of 3 &mdash; Site</div>
+      <div class="panel-title">Step 1 of 4 &mdash; Site</div>
 
       <div class="field">
         <label for="site_name">
@@ -890,7 +881,7 @@ function wval(string $key, string $default = ''): string {
     </div>
 
     <div class="btn-row">
-      <span></span><!-- spacer pushes button right -->
+      <span></span>
       <button type="submit" class="btn btn-primary">Continue &rarr;</button>
     </div>
   </form>
@@ -898,13 +889,120 @@ function wval(string $key, string $default = ''): string {
 
   <?php elseif ($step === 2): ?>
   <!-- ─────────────────────────────────────────────────────────
-       STEP 2 — Auth module + SMTP
+       STEP 2 — Database
   ───────────────────────────────────────────────────────────── -->
   <form method="POST" action="?step=2" novalidate>
     <input type="hidden" name="wizard_step" value="2">
 
     <div class="form-panel">
-      <div class="panel-title">Step 2 of 3 &mdash; Auth</div>
+      <div class="panel-title">Step 2 of 4 &mdash; Database</div>
+
+      <!-- Toggle: DB on/off -->
+      <div class="toggle-row">
+        <input
+          type="checkbox"
+          class="toggle"
+          id="db_enabled"
+          name="db_enabled"
+          <?= !empty($_SESSION['wizard']['db_enabled']) ? 'checked' : '' ?>
+          onchange="toggleDb(this.checked)"
+        >
+        <div class="toggle-body">
+          <label for="db_enabled" class="toggle-title">Enable database</label>
+          <span class="toggle-desc">
+            Required for the auth module and the admin configuration page.
+            Uses MySQL / MariaDB via PDO.
+          </span>
+        </div>
+      </div>
+
+      <!-- DB credentials — hidden when disabled -->
+      <div
+        class="sub-section"
+        id="db-section"
+        style="<?= empty($_SESSION['wizard']['db_enabled']) ? 'display:none;' : '' ?>"
+      >
+        <div class="sub-section-label">MySQL / MariaDB credentials</div>
+
+        <div class="field">
+          <label for="db_name">
+            Database name <span class="req">*</span>
+          </label>
+          <input
+            type="text"
+            id="db_name"
+            name="db_name"
+            value="<?= wval('db_name') ?>"
+            placeholder="my_database"
+            autocomplete="off"
+          >
+        </div>
+
+        <div class="field">
+          <label for="db_user">
+            Username <span class="req">*</span>
+          </label>
+          <input
+            type="text"
+            id="db_user"
+            name="db_user"
+            value="<?= wval('db_user') ?>"
+            placeholder="db_user"
+            autocomplete="off"
+          >
+        </div>
+
+        <div class="field">
+          <label for="db_pass">Password</label>
+          <input
+            type="password"
+            id="db_pass"
+            name="db_pass"
+            value="<?= wval('db_pass') ?>"
+            autocomplete="new-password"
+          >
+        </div>
+
+        <div class="field">
+          <label for="db_host">
+            Host
+            <span class="hint">Usually localhost. Change only if your DB is on a different server.</span>
+          </label>
+          <input
+            type="text"
+            id="db_host"
+            name="db_host"
+            value="<?= wval('db_host', 'localhost') ?>"
+            placeholder="localhost"
+            autocomplete="off"
+          >
+        </div>
+
+      </div><!-- /db-section -->
+    </div><!-- /form-panel -->
+
+    <div class="btn-row">
+      <a href="?step=1" class="btn btn-back">&larr; Back</a>
+      <button type="submit" class="btn btn-primary">Continue &rarr;</button>
+    </div>
+  </form>
+
+  <script>
+    function toggleDb(enabled) {
+      document.getElementById('db-section').style.display = enabled ? '' : 'none';
+    }
+  </script>
+
+
+  <?php elseif ($step === 3): ?>
+  <!-- ─────────────────────────────────────────────────────────
+       STEP 3 — Auth module + SMTP
+  ───────────────────────────────────────────────────────────── -->
+  <form method="POST" action="?step=3" novalidate>
+    <input type="hidden" name="wizard_step" value="3">
+
+    <div class="form-panel">
+      <div class="panel-title">Step 3 of 4 &mdash; Auth</div>
 
       <!-- Toggle: auth on/off -->
       <div class="toggle-row">
@@ -927,11 +1025,11 @@ function wval(string $key, string $default = ''): string {
 
       <!-- SMTP fields — hidden when auth is disabled -->
       <div
-        class="smtp-section"
+        class="sub-section"
         id="smtp-section"
         style="<?= empty($_SESSION['wizard']['auth_enabled']) ? 'display:none;' : '' ?>"
       >
-        <div class="smtp-label">SMTP &mdash; transactional email</div>
+        <div class="sub-section-label">SMTP &mdash; transactional email</div>
 
         <div class="field">
           <label for="smtp_host">
@@ -972,7 +1070,6 @@ function wval(string $key, string $default = ''): string {
           >
         </div>
 
-        <!-- From address and port on the same row -->
         <div class="field-row">
           <div class="field">
             <label for="smtp_from">
@@ -1022,40 +1119,34 @@ function wval(string $key, string $default = ''): string {
     </div><!-- /form-panel -->
 
     <div class="btn-row">
-      <a href="?step=1" class="btn btn-back">&larr; Back</a>
+      <a href="?step=2" class="btn btn-back">&larr; Back</a>
       <button type="submit" class="btn btn-primary">Continue &rarr;</button>
     </div>
   </form>
 
   <script>
-    /**
-     * Show or hide the SMTP fields based on the auth toggle state.
-     * Called by the toggle's onchange handler and on page load.
-     */
     function toggleSmtp(enabled) {
       document.getElementById('smtp-section').style.display = enabled ? '' : 'none';
     }
   </script>
 
 
-  <?php elseif ($step === 3): ?>
+  <?php elseif ($step === 4): ?>
   <!-- ─────────────────────────────────────────────────────────
-       STEP 3 — Review & write
+       STEP 4 — Review & write
   ───────────────────────────────────────────────────────────── -->
   <?php
-  // Guard: if step 1 data is missing, the session likely expired.
-  // Redirect to step 1 rather than writing an incomplete config.
   if (empty($_SESSION['wizard']['site_name'])):
       header('Location: ?step=1');
       exit;
   endif;
   $w = $_SESSION['wizard'];
   ?>
-  <form method="POST" action="?step=3" novalidate>
-    <input type="hidden" name="wizard_step" value="3">
+  <form method="POST" action="?step=4" novalidate>
+    <input type="hidden" name="wizard_step" value="4">
 
     <div class="form-panel">
-      <div class="panel-title">Step 3 of 3 &mdash; Review</div>
+      <div class="panel-title">Step 4 of 4 &mdash; Review</div>
 
       <p class="note" style="margin-bottom:1.25rem;">
         Review your settings. Clicking <strong style="color:var(--text);">Write config.php</strong>
@@ -1075,6 +1166,29 @@ function wval(string $key, string $default = ''): string {
           <td class="col-val"><?= esc($w['site_url']) ?></td>
         </tr>
 
+        <!-- Database -->
+        <tr class="review-section-row"><td colspan="2">Database</td></tr>
+        <tr>
+          <td class="col-key">DB_NAME</td>
+          <td class="col-val">
+            <?php if (!empty($w['db_enabled'])): ?>
+              <?= esc($w['db_name']) ?>
+            <?php else: ?>
+              <span class="badge-off">disabled</span>
+            <?php endif; ?>
+          </td>
+        </tr>
+        <?php if (!empty($w['db_enabled'])): ?>
+        <tr>
+          <td class="col-key">DB_USER</td>
+          <td class="col-val"><?= esc($w['db_user']) ?></td>
+        </tr>
+        <tr>
+          <td class="col-key">DB_HOST</td>
+          <td class="col-val"><?= esc($w['db_host'] ?? 'localhost') ?></td>
+        </tr>
+        <?php endif; ?>
+
         <!-- Auth -->
         <tr class="review-section-row"><td colspan="2">Auth</td></tr>
         <tr>
@@ -1089,7 +1203,6 @@ function wval(string $key, string $default = ''): string {
         </tr>
 
         <?php if (!empty($w['auth_enabled'])): ?>
-        <!-- SMTP — only when auth is on -->
         <tr class="review-section-row"><td colspan="2">SMTP</td></tr>
         <tr>
           <td class="col-key">SMTP_HOST</td>
@@ -1101,7 +1214,6 @@ function wval(string $key, string $default = ''): string {
         </tr>
         <tr>
           <td class="col-key">SMTP_PASS</td>
-          <!-- Mask the password — show bullet placeholders only -->
           <td class="col-val">
             <span class="masked"><?= str_repeat('&bull;', min(14, strlen($w['smtp_pass']))) ?></span>
           </td>
@@ -1128,9 +1240,6 @@ function wval(string $key, string $default = ''): string {
       </table>
 
       <?php if (!empty($manual_config)): ?>
-      <!-- Write failed: manual copy fallback ─────────────────── -->
-      <!-- Shown when file_put_contents() returned false.         -->
-      <!-- The developer can copy this and save it manually.      -->
       <div class="manual-copy">
         <p class="manual-copy-label">
           Write failed. Copy the content below and save it manually as
@@ -1143,7 +1252,7 @@ function wval(string $key, string $default = ''): string {
     </div><!-- /form-panel -->
 
     <div class="btn-row">
-      <a href="?step=2" class="btn btn-back">&larr; Back</a>
+      <a href="?step=3" class="btn btn-back">&larr; Back</a>
       <button type="submit" class="btn btn-primary">Write config.php</button>
     </div>
   </form>

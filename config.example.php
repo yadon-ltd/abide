@@ -62,3 +62,23 @@ define('AUTH_ENABLED', false);
 // 'hamburger' is the only option in v1. Placeholder for future
 // nav styles (e.g. 'topbar', 'sidebar').
 define('NAV_STYLE', 'hamburger');
+
+
+// ── Header Branding ──────────────────────────────────────────
+// Controls what appears in the centre column of the site header.
+//
+// LOGO_MODE options:
+//   'page_title' — shows the current page name as text (default)
+//   'logo'       — shows only the logo image
+//   'wordmark'   — shows only SITE_NAME as styled text
+//   'both'       — shows logo image + SITE_NAME text side by side
+//
+// LOGO_FILE: path to the logo image, relative to the web root.
+// LOGO_ALT:  alt text for the <img> tag. Defaults to SITE_NAME
+//            if not set — override here if you need something
+//            more descriptive.
+//
+// No core file edits are required after setting these values.
+define('LOGO_MODE', 'page_title');
+define('LOGO_FILE', '/assets/img/logo.png');
+define('LOGO_ALT',  SITE_NAME);
