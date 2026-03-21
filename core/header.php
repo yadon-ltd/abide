@@ -19,16 +19,24 @@
   have to repeat that boilerplate on every page. footer.php closes
   </body> and </html>.
 
+  ── Stylesheet load order ─────────────────────────────────────
+  1. /style.css         — defaults: all CSS custom properties
+  2. /assets/css.php    — DB overrides: only the tokens that have
+                          been changed via the admin config page
+  3. /assets/auth.css   — auth module styles (forms, alerts)
+
   ── Centre-column branding ────────────────────────────────────
-  Controlled by LOGO_MODE in config.php. Options:
+  Controlled by LOGO_MODE in config.php (or the admin config page,
+  which takes precedence via abide_logo_mode()). Options:
 
     'page_title'  Shows the current page name as text (default)
     'logo'        Shows only the logo image
-    'wordmark'    Shows only SITE_NAME as styled text
-    'both'        Shows logo image + SITE_NAME text side by side
+    'wordmark'    Shows only the site name as styled text
+    'both'        Shows logo image + site name text side by side
 
-  Set LOGO_FILE and LOGO_ALT in config.php to configure the image.
-  No edits to this file are required — change config.php only.
+  Identity values are resolved DB-first via the abide_* helpers
+  in modules/settings/settings.php. config.php constants are the
+  fallback when no DB override has been saved.
 
   ── Right-column slot (header grid col 3) ─────────────────────
   Empty by default. To add something (e.g. a search form,
@@ -40,29 +48,33 @@
 */
 
 // $page_title should be set by the calling page before this include.
-// Falls back to SITE_NAME if not set.
-$_header_title = isset($page_title) ? $page_title : (defined('SITE_NAME') ? SITE_NAME : '');
+// Falls back to the resolved site name if not set.
+$_header_title = isset($page_title) ? $page_title : '';
 
-// Read the logo mode from config. Defaults to 'page_title' if not set,
-// so the header behaves identically to v1 for anyone who hasn't added
-// the branding constants to their config.php yet.
-$_logo_mode = defined('LOGO_MODE') ? LOGO_MODE : 'page_title';
-$_logo_file = defined('LOGO_FILE') ? LOGO_FILE : '';
-$_logo_alt  = defined('LOGO_ALT')  ? LOGO_ALT  : (defined('SITE_NAME') ? SITE_NAME : '');
-$_site_name = defined('SITE_NAME') ? SITE_NAME : '';
+// Resolve identity values. The abide_* helpers check the settings
+// table first and fall back to config.php constants automatically.
+// If the settings module is not loaded (DB off), fall back directly
+// to constants so the header works in all configurations.
+$_site_name  = function_exists('abide_site_name') ? abide_site_name()  : (defined('SITE_NAME')    ? SITE_NAME    : '');
+$_logo_mode  = function_exists('abide_logo_mode') ? abide_logo_mode()  : (defined('LOGO_MODE')    ? LOGO_MODE    : 'page_title');
+$_logo_file  = function_exists('abide_logo_file') ? abide_logo_file()  : (defined('LOGO_FILE')    ? LOGO_FILE    : '');
+$_logo_alt   = function_exists('abide_logo_alt')  ? abide_logo_alt()   : (defined('LOGO_ALT')     ? LOGO_ALT     : $_site_name);
+
+// Page title for <title> tag — falls back to site name
+$_title_tag  = $_header_title ? $_header_title . ' — ' . $_site_name : $_site_name;
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title><?php echo htmlspecialchars($_header_title); ?><?php echo $_header_title ? ' — ' . htmlspecialchars(SITE_NAME) : htmlspecialchars(SITE_NAME); ?></title>
+  <title><?php echo htmlspecialchars($_title_tag); ?></title>
 
   <!-- 1. Default design tokens -->
   <link rel="stylesheet" href="/style.css" />
 
   <!-- 2. DB-driven token overrides (admin config page → settings table) -->
-  <!--    Outputs an empty :root{} if nothing has been customised yet.   -->
+  <!--    Outputs an empty comment if nothing has been customised yet.   -->
   <link rel="stylesheet" href="/assets/css.php" />
 
   <!-- 3. Auth module styles -->
@@ -86,14 +98,14 @@ $_site_name = defined('SITE_NAME') ? SITE_NAME : '';
   /*
     Centre column — header grid column 2.
 
-    Renders one of four modes based on LOGO_MODE in config.php:
+    Renders one of four modes based on the resolved logo mode:
       page_title  → plain text (the current page name)
       logo        → <img> linking home
-      wordmark    → SITE_NAME text linking home
-      both        → <img> + SITE_NAME text, side by side, linking home
+      wordmark    → site name text linking home
+      both        → <img> + site name text, side by side, linking home
 
-    The brand-link, header-logo, and brand-wordmark CSS classes
-    are defined in public/style.css.
+    Identity values are DB-first via the abide_* helpers.
+    CSS classes are defined in public/style.css.
   */
   ?>
 
@@ -135,8 +147,8 @@ $_site_name = defined('SITE_NAME') ? SITE_NAME : '';
 
   <?php else : ?>
 
-    <!-- Page title — default (LOGO_MODE = 'page_title' or not set) -->
-    <div class="page-title"><?php echo htmlspecialchars($_header_title); ?></div>
+    <!-- Page title — default (logo mode is 'page_title' or not set) -->
+    <div class="page-title"><?php echo htmlspecialchars($_header_title ?: $_site_name); ?></div>
 
   <?php endif; ?>
 

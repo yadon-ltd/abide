@@ -9,26 +9,35 @@
   What it outputs:
     • <footer> bar (fixed bottom, full width)
     • Left:   site name → home link
-    • Centre: copyright year (JS-populated) + SITE_NAME
+    • Centre: copyright year (JS-populated) + site name
     • Right:  visitor IP + browser (JS-populated)
     • Closing </body> and </html> tags
 
   The copyright year and visitor info are populated client-side
   so no server-side date logic is needed here.
+
+  The site name is resolved DB-first via abide_site_name(), which
+  checks the settings table before falling back to the SITE_NAME
+  constant in config.php.
   ──────────────────────────────────────────────────────────────
 */
+
+// Resolve site name — DB-first, constant fallback, then 'Home'
+$_footer_name = function_exists('abide_site_name')
+    ? abide_site_name()
+    : (defined('SITE_NAME') ? SITE_NAME : 'Home');
 ?>
 
 <footer>
 
   <!-- Left: site name — links home -->
   <div class="footer-home">
-    <a href="/"><?php echo htmlspecialchars(defined('SITE_NAME') ? SITE_NAME : 'Home'); ?></a>
+    <a href="/"><?php echo htmlspecialchars($_footer_name ?: 'Home'); ?></a>
   </div>
 
   <!-- Centre: copyright + site name -->
   <div class="footer-copy">
-    <span>&copy; <span id="copy-year"></span> <?php echo htmlspecialchars(defined('SITE_NAME') ? SITE_NAME : ''); ?></span>
+    <span>&copy; <span id="copy-year"></span> <?php echo htmlspecialchars($_footer_name); ?></span>
   </div>
 
   <!-- Right: visitor IP and browser -->
@@ -52,7 +61,6 @@
   ─────────────────────────────────────────────────────────────── */
 
   // Detect browser name and major version from the User-Agent string.
-  // Client-side only — no server-side UA sniffing needed.
   function detectBrowser() {
     var ua = navigator.userAgent;
     var v  = function (name, rx) {
@@ -92,7 +100,7 @@
     var ipEl = document.getElementById('visitor-ip');
     if (ipEl) {
       ipEl.textContent = ip;
-      // IPv6 addresses are long — shrink the font via a CSS class
+      // IPv6 addresses are long — shrink the font via inline style
       if (ip.includes(':')) ipEl.style.fontSize = '0.48rem';
     }
   })();

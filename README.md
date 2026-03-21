@@ -1,6 +1,6 @@
 # Abide
 
-A flat PHP project scaffold with an optional self-contained auth module.  
+A flat PHP project scaffold with an optional self-contained auth module and a database-backed admin configuration page.  
 No framework. No build step. No Google Fonts.
 
 ---
@@ -10,6 +10,7 @@ No framework. No build step. No Google Fonts.
 - Convention-based clean URL routing — no config file required
 - Shared header, footer, and nav via `core/`
 - CSS custom property system for consistent theming
+- Database-backed admin configuration page — change colors and identity without touching code
 - Setup wizard that writes `config.php` and locks itself
 - Optional auth module with login, registration, email verification, and password reset
 
@@ -28,24 +29,30 @@ abide/
 │   ├── footer.php          # Closes </body>, </html>, renders footer
 │   └── nav.php             # Hamburger nav panel
 ├── modules/
-│   └── auth/
-│       ├── auth.php        # All auth logic — functions only, no output
-│       ├── auth.css        # Auth page styles (card, fields, buttons)
-│       ├── schema.sql      # users table DDL + owner seed row
-│       └── phpmailer/      # PHPMailer dependency (not included — see below)
-│           └── src/
-│               ├── Exception.php
-│               ├── PHPMailer.php
-│               └── SMTP.php
+│   ├── auth/
+│   │   ├── auth.php        # All auth logic — functions only, no output
+│   │   ├── auth.css        # Auth page styles (card, fields, buttons)
+│   │   ├── schema.sql      # users table DDL + owner seed row
+│   │   └── phpmailer/      # PHPMailer dependency (not included — see below)
+│   │       └── src/
+│   │           ├── Exception.php
+│   │           ├── PHPMailer.php
+│   │           └── SMTP.php
+│   └── settings/
+│       ├── settings.php    # DB-backed settings store + identity helpers
+│       └── schema.sql      # settings table DDL
 ├── public/                 # Web root — point your document root here
 │   ├── .htaccess           # Routing, security headers, bot blocking
 │   ├── index.php           # Home page
 │   ├── style.css           # Global stylesheet — all CSS custom properties live here
+│   ├── 404.php             # Custom 404 error page
 │   ├── assets/
 │   │   ├── auth.css        # Copied from modules/auth/auth.css — served from web root
+│   │   ├── css.php         # Dynamic CSS endpoint — serves DB token overrides
 │   │   ├── fonts/
 │   │   └── img/
 │   └── pages/              # Convention-routed pages
+│       ├── admin.php       # Site configuration — PERM_HEADEND only
 │       ├── login.php
 │       ├── register.php
 │       ├── logout.php
@@ -87,28 +94,17 @@ Upload the project to your server with the document root temporarily pointing
 at the **project root** (the folder containing `setup/`, `core/`, `public/`, etc.)  
 so the wizard is reachable at `/setup/`.
 
-The wizard collects your site name, base URL, and SMTP credentials, then writes  
-`config.php` to the project root. It locks itself on completion — delete  
-`config.php` to re-run it.
+The wizard collects your site name, base URL, database credentials, and SMTP  
+credentials, then writes `config.php` to the project root. It locks itself on  
+completion — delete `config.php` to re-run it.
 
-### 3. Add database credentials to config.php
-
-The wizard leaves the DB block blank. Open `config.php` and fill it in manually:
-
-```php
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'your_database');   // on shared hosting: accountname_dbname
-define('DB_USER', 'your_db_user');
-define('DB_PASS', 'your_db_password');
-```
-
-### 4. Switch the document root to public/
+### 3. Switch the document root to public/
 
 After the wizard runs, reconfigure your web server or hosting control panel  
 to point the document root at `public/`. The setup wizard will then be outside  
 the web root and structurally unreachable.
 
-### 5. Update .htaccess
+### 4. Update .htaccess
 
 `public/.htaccess` uses `auto_prepend_file` to load `core/init.php` before  
 every request. On shared hosting, relative paths often don't resolve correctly.  
@@ -121,7 +117,7 @@ php_value auto_prepend_file /home/yourusername/abide/core/init.php
 Find your absolute path in your hosting control panel or by checking the  
 breadcrumb in File Manager.
 
-### 6. Create the database
+### 5. Create the database
 
 In your hosting control panel (e.g. cPanel → MySQL Databases):
 
@@ -129,7 +125,13 @@ In your hosting control panel (e.g. cPanel → MySQL Databases):
 - Create a new user
 - Grant the user full privileges on that database only
 
-### 7. Prepare and import schema.sql
+### 6. Import the settings schema
+
+In phpMyAdmin, select your database and import `modules/settings/schema.sql`.  
+This creates the `settings` table and enables the admin configuration page  
+at `/admin`.
+
+### 7. Prepare and import the auth schema
 
 Before importing, edit `modules/auth/schema.sql` and replace the placeholder  
 email and password hash in the seed INSERT with your real values.
@@ -139,38 +141,45 @@ Generate a bcrypt hash:
 php -r "echo password_hash('YourPasswordHere', PASSWORD_BCRYPT);"
 ```
 
-Import the file via phpMyAdmin: select your database, click Import, choose  
-`schema.sql`. Add `modules/auth/schema.sql` to `.gitignore` — it contains  
-real credentials and must never be committed.
+Import the file via phpMyAdmin. Add `modules/auth/schema.sql` to `.gitignore` —  
+it contains real credentials and must never be committed.
 
 ### 8. Copy auth.css into the web root
 
 `modules/auth/auth.css` lives above `public/` and cannot be served directly.  
-Copy it to `public/assets/auth.css` and link it in `core/header.php`:
-
-```html
-<link rel="stylesheet" href="/style.css" />
-<link rel="stylesheet" href="/assets/auth.css" />
-```
-
-When `auth.css` is updated in `modules/auth/`, copy it to `public/assets/` again.
+Copy it to `public/assets/auth.css`. When `auth.css` is updated in `modules/auth/`,  
+copy it again.
 
 ---
 
 ## Configuration reference
 
-All configuration lives in `config.php`, which is generated by the setup wizard.  
+All baseline configuration lives in `config.php`, generated by the setup wizard.  
 See `config.example.php` for a full template with comments.
 
 Key constants:
 
 ```php
-define('AUTH_ENABLED',           true);   // loads modules/auth/auth.php
-define('AUTH_REGISTRATION_OPEN', true);   // false = disable public sign-up
+define('AUTH_ENABLED', true);    // loads modules/auth/auth.php
+define('LOGO_MODE',    'both');  // 'page_title' | 'logo' | 'wordmark' | 'both'
+define('LOGO_FILE',    '/assets/img/logo.png');
+define('LOGO_ALT',     SITE_NAME);
 ```
 
-`AUTH_REGISTRATION_OPEN` controls whether `/register` is publicly accessible.  
-Set to `false` to lock down registration after the owner account is created.
+Identity values (site name, tagline, logo) can also be managed via the admin  
+configuration page at `/admin`. DB values take precedence over `config.php`  
+constants when both are set.
+
+---
+
+## Admin configuration page
+
+Located at `/admin`. Accessible to `PERM_HEADEND` users only.
+
+Provides UI controls for:
+
+- **Appearance** — CSS custom property overrides (accent color, backgrounds, borders, text). Changes are served by `/assets/css.php` and cached for 5 minutes.
+- **Identity** — Site name, tagline, logo mode, logo file path, logo alt text. Changes take effect immediately.
 
 ---
 
@@ -178,11 +187,11 @@ Set to `false` to lock down registration after the owner account is created.
 
 Defined in `auth.php`. Used as bit flags on the `permissions` column.
 
-| Constant        | Value | Role slug  | Description         |
-|-----------------|-------|------------|---------------------|
-| `PERM_NODE`     | 1     | node       | Active subscriber   |
-| `PERM_BACKBONE` | 2     | backbone   | Administrator       |
-| `PERM_HEADEND`  | 4     | headend    | Owner / full access |
+| Constant        | Value | Role      | Description         |
+|-----------------|-------|-----------|---------------------|
+| `PERM_NODE`     | 1     | node      | Active subscriber   |
+| `PERM_BACKBONE` | 2     | backbone  | Administrator       |
+| `PERM_HEADEND`  | 4     | headend   | Owner / full access |
 
 Combine with bitwise OR:
 ```php
@@ -199,9 +208,10 @@ auth_require_permission(PERM_HEADEND, '/');   // owner only, redirect home
 
 ## Function reference
 
+### Auth
+
 | Function | Description |
 |---|---|
-| `auth_session_start()` | Start session with secure cookie settings (idempotent) |
 | `auth_user()` | Current user array or null |
 | `auth_require_login($redirect)` | Redirect to /login if not authenticated |
 | `auth_require_permission($perm, $redirect)` | Redirect if missing permission bit |
@@ -214,14 +224,27 @@ auth_require_permission(PERM_HEADEND, '/');   // owner only, redirect home
 | `auth_check_reset_token($token)` | Validate reset token without consuming it |
 | `auth_reset_password($token, $new_password)` | Redeem reset token, update password |
 
+### Settings
+
+| Function | Description |
+|---|---|
+| `settings_get($key, $default)` | Fetch a single setting value |
+| `settings_set($key, $value)` | Write or update a single setting |
+| `settings_get_all()` | Fetch all settings as a key→value array |
+| `settings_get_css()` | Fetch css.* keys mapped to CSS property names |
+| `abide_site_name()` | Resolved site name (DB-first, constant fallback) |
+| `abide_tagline()` | Resolved tagline |
+| `abide_logo_mode()` | Resolved logo mode |
+| `abide_logo_file()` | Resolved logo file path |
+| `abide_logo_alt()` | Resolved logo alt text |
+
 ---
 
 ## Clean URLs
 
-Auth pages are routed by `public/.htaccess`:
-
 | URL | File |
 |---|---|
+| `/admin` | `public/pages/admin.php` |
 | `/login` | `public/pages/login.php` |
 | `/register` | `public/pages/register.php` |
 | `/logout` | `public/pages/logout.php` |
@@ -244,4 +267,5 @@ These are documented here, not bugs.
 ## License
 
 Abide is GPL v3. PHPMailer is LGPL 2.1 (compatible).  
-Copyright Jim Yadon. CLA required before accepting outside contributions.
+Copyright Jim Yadon. CLA required before accepting outside contributions.  
+See `CONTRIBUTING.md` and `CLA.md`.

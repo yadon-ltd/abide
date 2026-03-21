@@ -12,21 +12,19 @@
     1. Appearance   — CSS custom property overrides stored in the
                       settings table and served by /assets/css.php
     2. Identity     — Site name, tagline, logo mode/file/alt
-                      ⚠ NOTE: identity values save to the DB but
-                      config.php PHP constants still take precedence
-                      until the core/init.php retrofit is done.
-                      This section is a preview of that behaviour.
+                      Values are saved to the DB and take effect
+                      immediately via the abide_* helper functions
+                      in modules/settings/settings.php.
 
   Save mechanism:
     POST to self. Each named field maps to a settings key.
     settings_set() upserts the value. Flash message on success.
+    PRG pattern — redirects after save to prevent re-POST on refresh.
   ──────────────────────────────────────────────────────────────
 */
 
 
 // ── Gate: head end only ───────────────────────────────────────
-// auth_require_permission() redirects (does not throw) so execution
-// stops here for anyone without PERM_HEADEND.
 auth_require_permission(PERM_HEADEND, '/');
 
 
@@ -47,13 +45,13 @@ $css_defaults = [
     'css.text-dimmer' => 'rgba(216, 207, 196, 0.45)',
 ];
 
-// Identity defaults from config.php constants
+// Identity defaults — resolved DB-first via helpers, then constants
 $identity_defaults = [
-    'site.name'      => defined('SITE_NAME')    ? SITE_NAME    : '',
-    'site.tagline'   => defined('SITE_TAGLINE') ? SITE_TAGLINE : '',
-    'site.logo_mode' => defined('LOGO_MODE')    ? LOGO_MODE    : 'page_title',
-    'site.logo_file' => defined('LOGO_FILE')    ? LOGO_FILE    : '/assets/img/logo.png',
-    'site.logo_alt'  => defined('LOGO_ALT')     ? LOGO_ALT     : '',
+    'site.name'      => abide_site_name(),
+    'site.tagline'   => abide_tagline(),
+    'site.logo_mode' => abide_logo_mode(),
+    'site.logo_file' => abide_logo_file(),
+    'site.logo_alt'  => abide_logo_alt(),
 ];
 
 
@@ -62,8 +60,6 @@ $flash = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    // All expected field names and their settings keys.
-    // Only these keys are written — no free-form key injection possible.
     $allowed_keys = array_merge(
         array_keys($css_defaults),
         array_keys($identity_defaults)
@@ -71,11 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $saved = 0;
     foreach ($allowed_keys as $key) {
-        // Convert key to a safe POST field name: 'css.accent' → 'css_accent'
         $field = str_replace(['.', '-'], '_', $key);
-
         if (isset($_POST[$field])) {
-            // Trim the incoming value; empty string is valid (clears override)
             $value = trim($_POST[$field]);
             if (settings_set($key, $value)) {
                 $saved++;
@@ -87,7 +80,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ? 'ok:Settings saved.'
         : 'bad:Nothing was saved — check your database connection.';
 
-    // PRG pattern: redirect to self to prevent re-POST on refresh
     $flash_encoded = urlencode($flash);
     header("Location: /admin?saved={$flash_encoded}");
     exit;
@@ -98,7 +90,6 @@ if (!empty($_GET['saved'])) {
     $flash = urldecode($_GET['saved']);
 }
 
-// Flash is stored as 'type:message' — split it
 $flash_type = '';
 $flash_msg  = '';
 if ($flash) {
@@ -107,10 +98,9 @@ if ($flash) {
 
 
 // ── Load current saved values ─────────────────────────────────
-// Falls back to the defaults defined above if no override is saved.
 $current = settings_get_all();
 
-// Helper: get current value with fallback to defaults
+// Helper: get display value for a field — saved value wins, then default
 function admin_val(string $key, array $current, array $defaults): string {
     if (isset($current[$key]) && $current[$key] !== '') {
         return $current[$key];
@@ -133,7 +123,6 @@ include ABIDE_CORE . '/header.php';
     animation: fadeUp 0.3s ease both;
   }
 
-  /* Section card */
   .admin-section {
     background: var(--bg2);
     border: 1px solid var(--border);
@@ -158,16 +147,12 @@ include ABIDE_CORE . '/header.php';
     line-height: 1.6;
   }
 
-  .admin-section-desc a {
+  .admin-section-desc code {
+    font-family: var(--mono);
+    font-size: 0.78em;
     color: var(--accent-dim);
-    text-decoration: none;
   }
 
-  .admin-section-desc a:hover {
-    color: var(--accent);
-  }
-
-  /* Field rows */
   .field-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -175,9 +160,7 @@ include ABIDE_CORE . '/header.php';
     margin-bottom: 1rem;
   }
 
-  .field-row.full {
-    grid-template-columns: 1fr;
-  }
+  .field-row.full { grid-template-columns: 1fr; }
 
   @media (max-width: 560px) {
     .field-row { grid-template-columns: 1fr; }
@@ -197,7 +180,6 @@ include ABIDE_CORE . '/header.php';
     color: var(--text-dimmer);
   }
 
-  /* Text/color inputs */
   .field input[type="text"],
   .field input[type="url"],
   .field select {
@@ -219,7 +201,6 @@ include ABIDE_CORE . '/header.php';
     border-color: var(--border-hi);
   }
 
-  /* Colour fields — side-by-side picker + text input */
   .color-field {
     display: flex;
     gap: 0.5rem;
@@ -242,37 +223,12 @@ include ABIDE_CORE . '/header.php';
     min-width: 0;
   }
 
-  /* The rgba/complex value fields — just a text input with a hint */
   .field .hint {
     font-size: 0.58rem;
     color: var(--text-dimmer);
     font-style: italic;
   }
 
-  /* Notice block */
-  .admin-notice {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--warn);
-    border-radius: 3px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 1.5rem;
-    font-size: 0.78rem;
-    color: var(--text-dim);
-    line-height: 1.6;
-  }
-
-  .admin-notice .notice-icon {
-    color: var(--warn);
-    font-style: normal;
-    flex-shrink: 0;
-    margin-top: 0.05rem;
-  }
-
-  /* Flash message */
   .flash {
     padding: 0.7rem 1rem;
     border-radius: 3px;
@@ -285,19 +241,16 @@ include ABIDE_CORE . '/header.php';
   .flash.ok  { background: rgba(68, 221, 136, 0.08); border: 1px solid rgba(68, 221, 136, 0.25); color: var(--ok);  }
   .flash.bad { background: rgba(255, 85,  85,  0.08); border: 1px solid rgba(255, 85,  85,  0.25); color: var(--bad); }
 
-  /* Fieldset divider inside a section */
   .field-divider {
     border: none;
     border-top: 1px solid var(--border);
     margin: 1.25rem 0;
   }
 
-  /* Save bar */
   .save-bar {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 1rem;
   }
 
   .btn-save {
@@ -503,19 +456,10 @@ include ABIDE_CORE . '/header.php';
 
       <div class="admin-section-title">Identity</div>
       <p class="admin-section-desc">
-        Site name, tagline, and logo configuration.
+        Site name, tagline, and logo configuration. Changes take effect
+        immediately — values are resolved from the database before
+        <code>config.php</code> constants.
       </p>
-
-      <div class="admin-notice">
-        <em class="notice-icon">⚠</em>
-        <span>
-          These values are saved to the database but
-          <strong>config.php constants currently take precedence</strong>.
-          A future update to <code>core/init.php</code> will make the
-          DB values the live source. For now, edit <code>config.php</code>
-          directly for changes to take effect.
-        </span>
-      </div>
 
       <div class="field-row">
         <div class="field">
@@ -595,12 +539,6 @@ include ABIDE_CORE . '/header.php';
 
 
 <script>
-  /*
-    syncPicker — keeps a color picker in sync when the user types
-    a hex value directly in the text input beside it.
-    Only attempts sync if the value looks like a valid hex color —
-    rgba values won't move the picker and that's expected.
-  */
   function syncPicker(textInput, pickerId) {
     var val = textInput.value.trim();
     if (/^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$/.test(val)) {
