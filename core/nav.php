@@ -119,37 +119,21 @@ $_nav_show_home = ($_nav_current !== 'index.php');
 
   ══════════════════════════════════════════════════════════ -->
 
-  <!-- Placeholder — remove once you have real items -->
-  <div class="menu-item">
-    <span class="menu-label" style="cursor:default; opacity:0.35; font-style:italic;">
-      No pages yet
-    </span>
-  </div>
-
-
   <!-- ── Bottom divider + utility links ─────────────────────── -->
   <hr class="submenu-divider" style="margin: 0.4rem 0.9rem;" />
 
-  <!--
-    If AUTH_ENABLED is true and modules/auth/ is loaded,
-    you can render login state here. Example:
-
-    <?php if (defined('AUTH_ENABLED') && AUTH_ENABLED && function_exists('auth_user')): ?>
-      <?php $__nav_user = auth_user(); ?>
-      <?php if ($__nav_user): ?>
-        <div class="menu-item">
-          <a class="menu-label" href="/account" style="text-decoration:none;">Account</a>
-        </div>
-        <div class="menu-item">
-          <a class="menu-label" href="/logout" style="text-decoration:none;">Sign out</a>
-        </div>
-      <?php else: ?>
-        <div class="menu-item">
-          <a class="menu-label" href="/login" style="text-decoration:none;">Sign in</a>
-        </div>
-      <?php endif; ?>
+  <?php if (defined('AUTH_ENABLED') && AUTH_ENABLED && function_exists('auth_user')): ?>
+    <?php $__nav_user = auth_user(); ?>
+    <?php if ($__nav_user): ?>
+      <div class="menu-item">
+        <a class="menu-label" href="/logout" style="text-decoration:none;">Sign out</a>
+      </div>
+    <?php else: ?>
+      <div class="menu-item">
+        <a class="menu-label" href="/login" style="text-decoration:none;">Sign in</a>
+      </div>
     <?php endif; ?>
-  -->
+  <?php endif; ?>
 
 </nav><!-- /#nav-menu -->
 
