@@ -46,3 +46,4 @@ desktop.ini
 # ── Setup wizard ──────────────────────────────────────────────
 # Uncomment after first run to prevent wizard from being exposed in production
 # /setup/
+modules/auth/schema.sql
