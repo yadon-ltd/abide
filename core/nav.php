@@ -140,6 +140,13 @@ $_nav_user = (defined('AUTH_ENABLED') && AUTH_ENABLED && function_exists('auth_u
     </div>
     <?php endif; ?>
 
+    <!-- Profile link — visible to all logged-in users -->
+    <div class="menu-item">
+      <a class="menu-label" href="/profile" style="text-decoration:none;">
+        Profile
+      </a>
+    </div>
+
     <div class="menu-item">
       <a class="menu-label" href="/logout" style="text-decoration:none;">Sign out</a>
     </div>

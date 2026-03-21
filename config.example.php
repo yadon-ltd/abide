@@ -58,6 +58,15 @@ define('SMTP_NAME', SITE_NAME);  // display name on outgoing mail
 define('AUTH_ENABLED', false);
 
 
+// ── Remember Me ───────────────────────────────────────────────
+// Persistent login tokens — opt-in, off by default.
+// Requires AUTH_ENABLED = true and the user_tokens schema imported
+// (see modules/auth/user_tokens.sql).
+// When enabled, users can toggle the preference in their profile.
+// Tokens last 30 days and are rotated on each use.
+define('REMEMBER_ME_ENABLED', false);
+
+
 // ── Navigation ────────────────────────────────────────────────
 // 'hamburger' is the only option in v1. Placeholder for future
 // nav styles (e.g. 'topbar', 'sidebar').

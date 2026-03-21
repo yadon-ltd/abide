@@ -30,9 +30,9 @@ $_footer_name = function_exists('abide_site_name')
 
 <footer>
 
-  <!-- Left: site name — links home -->
+  <!-- Left: support link -->
   <div class="footer-home">
-    <a href="/"><?php echo htmlspecialchars($_footer_name ?: 'Home'); ?></a>
+    <a href="/donate">Support</a>
   </div>
 
   <!-- Centre: copyright + site name -->

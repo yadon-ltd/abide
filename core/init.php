@@ -81,4 +81,14 @@ if (defined('DB_NAME') && DB_NAME !== '') {
 // The module lives in modules/auth/ to keep it self-contained.
 if (defined('AUTH_ENABLED') && AUTH_ENABLED === true) {
     require_once ABIDE_ROOT . '/modules/auth/auth.php';
+
+    // ── Remember Me token check ───────────────────────────────
+    // If no active session exists but a persistent cookie is
+    // present, attempt to restore the session from the token.
+    // Only runs when REMEMBER_ME_ENABLED = true in config.php.
+    if (defined('REMEMBER_ME_ENABLED') && REMEMBER_ME_ENABLED
+        && empty($_SESSION['user_id'])
+    ) {
+        auth_check_token();
+    }
 }

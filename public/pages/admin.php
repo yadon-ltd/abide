@@ -259,6 +259,21 @@ include ABIDE_CORE . '/header.php';
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    gap: 1rem;
+  }
+
+  .btn-examples {
+    color: var(--text-dimmer);
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+
+  .btn-examples:hover {
+    color: var(--text);
   }
 
   .btn-save {
@@ -595,6 +610,7 @@ include ABIDE_CORE . '/header.php';
 
     <!-- ── Save ──────────────────────────────────────────────── -->
     <div class="save-bar">
+      <a href="/example" class="btn-examples">View example page</a>
       <button type="submit" class="btn-save">Save settings</button>
     </div>
 

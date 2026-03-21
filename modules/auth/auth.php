@@ -196,7 +196,7 @@ function auth_login(string $email, string $password): array {
 
     $pdo  = db_connect();
     $stmt = $pdo->prepare(
-        'SELECT id, email, password_hash, role, permissions, email_verified
+        'SELECT id, email, password_hash, role, permissions, email_verified, remember_me
            FROM users
           WHERE email = ?
           LIMIT 1'
@@ -227,6 +227,12 @@ function auth_login(string $email, string $password): array {
 
     $_SESSION['user_id'] = $user['id'];
 
+    // Issue a persistent token if the user has Remember Me enabled
+    // and the feature is active in config.php
+    if (defined('REMEMBER_ME_ENABLED') && REMEMBER_ME_ENABLED && !empty($user['remember_me'])) {
+        auth_issue_token($user['id']);
+    }
+
     // Record last login timestamp
     $upd = $pdo->prepare(
         'UPDATE users SET last_login = NOW(), updated_at = NOW() WHERE id = ?'
@@ -243,6 +249,10 @@ function auth_login(string $email, string $password): array {
  */
 function auth_logout(): void {
     auth_session_start();
+
+    // Capture user ID before clearing the session — needed for token revocation
+    $logout_user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+
     $_SESSION = [];
 
     // Expire the session cookie in the browser
@@ -255,6 +265,13 @@ function auth_logout(): void {
     }
 
     session_destroy();
+
+    // Revoke ALL persistent tokens for this user across all devices.
+    // Paranoid by design — logout means logout everywhere.
+    if ($logout_user_id !== null) {
+        auth_revoke_all_tokens($logout_user_id);
+    }
+    auth_clear_token_cookie();
 }
 
 
@@ -657,4 +674,236 @@ function auth_reset_password(string $token, string $new_password): array {
     $upd->execute([$hash, $user_id]);
 
     return ['ok' => true];
+}
+
+
+// ── Remember Me ───────────────────────────────────────────────
+/*
+  Persistent login token system.
+  Requires: REMEMBER_ME_ENABLED = true in config.php
+            modules/auth/user_tokens.sql imported into the database
+            remember_me column on the users table (same schema file)
+
+  Security model:
+    • Raw tokens are never stored server-side — only SHA-256 hashes.
+    • Tokens are rotated on every successful use (delete old, issue new).
+    • On logout, ALL tokens for the user are revoked (all devices).
+    • If a user disables Remember Me, all tokens are immediately revoked.
+    • Paranoid reuse: if a token is presented that no longer exists in
+      the DB (already rotated), the cookie is cleared. We cannot
+      distinguish a stolen rotated token from a stale one in v1 —
+      logged as a known gap.
+
+  Cookie name: abide_remember
+  Cookie TTL:  30 days
+  Token value: 32 random bytes → 64-char hex string (stored hashed)
+*/
+
+// Cookie name used for the persistent login token
+if (!defined('REMEMBER_ME_COOKIE')) define('REMEMBER_ME_COOKIE', 'abide_remember');
+
+// Token lifetime in seconds (30 days)
+if (!defined('REMEMBER_ME_TTL')) define('REMEMBER_ME_TTL', 30 * 24 * 60 * 60);
+
+
+/**
+ * Issue a persistent login token for the given user.
+ *
+ * Generates a cryptographically random token, stores its SHA-256
+ * hash in the user_tokens table, and sets a 30-day cookie.
+ * No-op if REMEMBER_ME_ENABLED is false.
+ *
+ * @param int $user_id  The authenticated user's ID
+ */
+function auth_issue_token(int $user_id): void {
+    if (!defined('REMEMBER_ME_ENABLED') || !REMEMBER_ME_ENABLED) return;
+
+    $raw_token  = bin2hex(random_bytes(32)); // 64-char hex
+    $hash       = hash('sha256', $raw_token);
+    $expires_at = date('Y-m-d H:i:s', time() + REMEMBER_ME_TTL);
+
+    try {
+        $pdo  = db_connect();
+        $stmt = $pdo->prepare(
+            'INSERT INTO user_tokens (user_id, token_hash, expires_at)
+             VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$user_id, $hash, $expires_at]);
+    } catch (PDOException $e) {
+        error_log('auth_issue_token error: ' . $e->getMessage());
+        return; // Do not set the cookie if the DB write failed
+    }
+
+    setcookie(REMEMBER_ME_COOKIE, $raw_token, [
+        'expires'  => time() + REMEMBER_ME_TTL,
+        'path'     => '/',
+        'secure'   => true,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+
+
+/**
+ * Check for a valid persistent login cookie and restore the session.
+ *
+ * Called from core/init.php when AUTH_ENABLED and REMEMBER_ME_ENABLED
+ * are both true and no active session exists.
+ *
+ * On a valid token: rotates the token (delete + reissue), regenerates
+ * the session ID, and sets $_SESSION['user_id'].
+ *
+ * On an invalid or missing token: clears the cookie and returns.
+ */
+function auth_check_token(): void {
+    if (!defined('REMEMBER_ME_ENABLED') || !REMEMBER_ME_ENABLED) return;
+    if (!isset($_COOKIE[REMEMBER_ME_COOKIE])) return;
+
+    $raw_token = $_COOKIE[REMEMBER_ME_COOKIE];
+
+    // Basic sanity check — token should be 64 hex chars
+    if (!ctype_xdigit($raw_token) || strlen($raw_token) !== 64) {
+        auth_clear_token_cookie();
+        return;
+    }
+
+    $hash = hash('sha256', $raw_token);
+
+    try {
+        $pdo  = db_connect();
+        $stmt = $pdo->prepare(
+            'SELECT t.id, t.user_id, t.expires_at,
+                    u.remember_me
+               FROM user_tokens t
+               JOIN users u ON u.id = t.user_id
+              WHERE t.token_hash = ?
+              LIMIT 1'
+        );
+        $stmt->execute([$hash]);
+        $row = $stmt->fetch();
+    } catch (PDOException $e) {
+        error_log('auth_check_token DB error: ' . $e->getMessage());
+        return;
+    }
+
+    if (!$row) {
+        // Token not found — expired, revoked, or already rotated
+        auth_clear_token_cookie();
+        return;
+    }
+
+    if (strtotime($row['expires_at']) < time()) {
+        // Expired — clean up the DB row
+        $pdo->prepare('DELETE FROM user_tokens WHERE id = ?')->execute([$row['id']]);
+        auth_clear_token_cookie();
+        return;
+    }
+
+    if (!$row['remember_me']) {
+        // User has since disabled Remember Me — revoke everything
+        auth_revoke_all_tokens($row['user_id']);
+        auth_clear_token_cookie();
+        return;
+    }
+
+    // ── Valid token — rotate ──────────────────────────────────
+    // Delete the current token row and issue a fresh one.
+    // This limits the useful window for a stolen cookie.
+    $pdo->prepare('DELETE FROM user_tokens WHERE id = ?')->execute([$row['id']]);
+
+    // Update last login
+    $pdo->prepare(
+        'UPDATE users SET last_login = NOW(), updated_at = NOW() WHERE id = ?'
+    )->execute([$row['user_id']]);
+
+    // Restore session
+    auth_session_start();
+    session_regenerate_id(true);
+    $_SESSION['user_id'] = $row['user_id'];
+
+    // Issue replacement token
+    auth_issue_token($row['user_id']);
+}
+
+
+/**
+ * Revoke a single token by ID.
+ *
+ * The user_id check prevents one user from revoking another's tokens.
+ * Used from the profile page's per-token revoke button.
+ *
+ * @param int $token_id  Row ID from user_tokens
+ * @param int $user_id   Must match the token's owner
+ * @return bool          True if a row was deleted
+ */
+function auth_revoke_token(int $token_id, int $user_id): bool {
+    try {
+        $pdo  = db_connect();
+        $stmt = $pdo->prepare(
+            'DELETE FROM user_tokens WHERE id = ? AND user_id = ?'
+        );
+        $stmt->execute([$token_id, $user_id]);
+        return $stmt->rowCount() > 0;
+    } catch (PDOException $e) {
+        error_log('auth_revoke_token error: ' . $e->getMessage());
+        return false;
+    }
+}
+
+
+/**
+ * Revoke ALL persistent tokens for a user.
+ *
+ * Called on logout (all devices) and when Remember Me is disabled.
+ *
+ * @param int $user_id
+ */
+function auth_revoke_all_tokens(int $user_id): void {
+    try {
+        $pdo  = db_connect();
+        $stmt = $pdo->prepare('DELETE FROM user_tokens WHERE user_id = ?');
+        $stmt->execute([$user_id]);
+    } catch (PDOException $e) {
+        error_log('auth_revoke_all_tokens error: ' . $e->getMessage());
+    }
+}
+
+
+/**
+ * Expire and remove the persistent login cookie from the browser.
+ */
+function auth_clear_token_cookie(): void {
+    setcookie(REMEMBER_ME_COOKIE, '', [
+        'expires'  => time() - 42000,
+        'path'     => '/',
+        'secure'   => true,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+
+
+/**
+ * Fetch all active tokens for a user, newest first.
+ *
+ * Used on the profile page to display the active sessions list.
+ *
+ * @param int $user_id
+ * @return array  Array of rows: id, created_at, expires_at, last_used_at
+ */
+function auth_get_user_tokens(int $user_id): array {
+    try {
+        $pdo  = db_connect();
+        $stmt = $pdo->prepare(
+            'SELECT id, created_at, expires_at, last_used_at
+               FROM user_tokens
+              WHERE user_id = ?
+              ORDER BY created_at DESC'
+        );
+        $stmt->execute([$user_id]);
+        return $stmt->fetchAll();
+    } catch (PDOException $e) {
+        error_log('auth_get_user_tokens error: ' . $e->getMessage());
+        return [];
+    }
 }

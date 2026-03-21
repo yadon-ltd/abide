@@ -12,7 +12,8 @@ No framework. No build step. No Google Fonts.
 - CSS custom property system for consistent theming
 - Database-backed admin configuration page — change colors and identity without touching code
 - Setup wizard that writes `config.php` and locks itself
-- Optional auth module with login, registration, email verification, and password reset
+- Optional auth module with login, registration, email verification, password reset, and persistent login
+- User profile page with Remember Me management
 
 ---
 
@@ -33,6 +34,7 @@ abide/
 │   │   ├── auth.php        # All auth logic — functions only, no output
 │   │   ├── auth.css        # Auth page styles (card, fields, buttons)
 │   │   ├── schema.sql      # users table DDL + owner seed row
+│   │   ├── user_tokens.sql # Persistent login token table + users.remember_me column
 │   │   └── phpmailer/      # PHPMailer dependency (not included — see below)
 │   │       └── src/
 │   │           ├── Exception.php
@@ -53,6 +55,8 @@ abide/
 │   │   └── img/
 │   └── pages/              # Convention-routed pages
 │       ├── admin.php       # Site configuration — PERM_HEADEND only
+│       ├── profile.php     # User profile — all authenticated users
+│       ├── donate.php      # Support the project
 │       ├── login.php
 │       ├── register.php
 │       ├── logout.php
@@ -144,7 +148,13 @@ php -r "echo password_hash('YourPasswordHere', PASSWORD_BCRYPT);"
 Import the file via phpMyAdmin. Add `modules/auth/schema.sql` to `.gitignore` —  
 it contains real credentials and must never be committed.
 
-### 8. Copy auth.css into the web root
+### 8. Import the user tokens schema (optional)
+
+If you intend to enable Remember Me, import `modules/auth/user_tokens.sql`.  
+This adds the `remember_me` column to the `users` table and creates the  
+`user_tokens` table. Then set `REMEMBER_ME_ENABLED = true` in `config.php`.
+
+### 9. Copy auth.css into the web root
 
 `modules/auth/auth.css` lives above `public/` and cannot be served directly.  
 Copy it to `public/assets/auth.css`. When `auth.css` is updated in `modules/auth/`,  
@@ -160,10 +170,11 @@ See `config.example.php` for a full template with comments.
 Key constants:
 
 ```php
-define('AUTH_ENABLED', true);    // loads modules/auth/auth.php
-define('LOGO_MODE',    'both');  // 'page_title' | 'logo' | 'wordmark' | 'both'
-define('LOGO_FILE',    '/assets/img/logo.png');
-define('LOGO_ALT',     SITE_NAME);
+define('AUTH_ENABLED',        true);    // loads modules/auth/auth.php
+define('REMEMBER_ME_ENABLED', false);   // persistent login tokens (requires user_tokens.sql)
+define('LOGO_MODE',           'both');  // 'page_title' | 'logo' | 'wordmark' | 'both'
+define('LOGO_FILE',           '/assets/img/logo.png');
+define('LOGO_ALT',            SITE_NAME);
 ```
 
 Identity values (site name, tagline, logo) can also be managed via the admin  
@@ -180,6 +191,7 @@ Provides UI controls for:
 
 - **Appearance** — CSS custom property overrides (accent color, backgrounds, borders, text). Changes are served by `/assets/css.php` and cached for 5 minutes.
 - **Identity** — Site name, tagline, logo mode, logo file path, logo alt text. Changes take effect immediately.
+- **Home Page** — Independent branding for the landing page (logo mode, file, alt text).
 
 ---
 
@@ -216,13 +228,19 @@ auth_require_permission(PERM_HEADEND, '/');   // owner only, redirect home
 | `auth_require_login($redirect)` | Redirect to /login if not authenticated |
 | `auth_require_permission($perm, $redirect)` | Redirect if missing permission bit |
 | `auth_login($email, $password)` | Validate credentials, set session |
-| `auth_logout()` | Destroy session and expire cookie |
+| `auth_logout()` | Destroy session, expire cookie, revoke all tokens |
 | `auth_register($email, $password)` | Create account, send verification email |
 | `auth_verify_email($token)` | Redeem verification token |
 | `auth_regenerate_verify($email)` | Resend fresh verification email |
 | `auth_request_password_reset($email)` | Generate reset token, send reset email |
 | `auth_check_reset_token($token)` | Validate reset token without consuming it |
 | `auth_reset_password($token, $new_password)` | Redeem reset token, update password |
+| `auth_issue_token($user_id)` | Issue a 30-day persistent login token |
+| `auth_check_token()` | Validate persistent cookie and restore session |
+| `auth_revoke_token($token_id, $user_id)` | Revoke a single token |
+| `auth_revoke_all_tokens($user_id)` | Revoke all tokens for a user |
+| `auth_clear_token_cookie()` | Expire the persistent login cookie |
+| `auth_get_user_tokens($user_id)` | Fetch all active tokens for a user |
 
 ### Settings
 
@@ -234,9 +252,12 @@ auth_require_permission(PERM_HEADEND, '/');   // owner only, redirect home
 | `settings_get_css()` | Fetch css.* keys mapped to CSS property names |
 | `abide_site_name()` | Resolved site name (DB-first, constant fallback) |
 | `abide_tagline()` | Resolved tagline |
-| `abide_logo_mode()` | Resolved logo mode |
-| `abide_logo_file()` | Resolved logo file path |
-| `abide_logo_alt()` | Resolved logo alt text |
+| `abide_logo_mode()` | Resolved header logo mode |
+| `abide_logo_file()` | Resolved header logo file path |
+| `abide_logo_alt()` | Resolved header logo alt text |
+| `abide_index_logo_mode()` | Resolved home page logo mode |
+| `abide_index_logo_file()` | Resolved home page logo file path |
+| `abide_index_logo_alt()` | Resolved home page logo alt text |
 
 ---
 
@@ -245,6 +266,8 @@ auth_require_permission(PERM_HEADEND, '/');   // owner only, redirect home
 | URL | File |
 |---|---|
 | `/admin` | `public/pages/admin.php` |
+| `/profile` | `public/pages/profile.php` |
+| `/donate` | `public/pages/donate.php` |
 | `/login` | `public/pages/login.php` |
 | `/register` | `public/pages/register.php` |
 | `/logout` | `public/pages/logout.php` |
@@ -259,8 +282,24 @@ auth_require_permission(PERM_HEADEND, '/');   // owner only, redirect home
 - No CSRF tokens on auth forms
 - No rate limiting on login or reset endpoints
 - `auth.css` must be manually copied to `public/assets/` — it is not symlinked
+- Remember Me token rotation cannot distinguish a stolen rotated token from a stale one
 
 These are documented here, not bugs.
+
+---
+
+## Support
+
+Abide is free and open source. If it saves you time or becomes the foundation  
+of something you ship, consider supporting continued development.
+
+<div align="center">
+
+[![Support via Cash App](https://chart.cashapp.com/v1/qr/cashtag?data=%24yltdabide&size=180)](https://cash.app/$yltdabide)
+
+**[$yltdabide](https://cash.app/$yltdabide)**
+
+</div>
 
 ---
 

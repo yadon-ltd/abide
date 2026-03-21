@@ -103,6 +103,25 @@
       word-break: break-word;
     }
 
+    /* Support link — quiet, below tagline */
+    .home-support {
+      font-family: var(--mono);
+      font-size: 0.58rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-top: 0.25rem;
+    }
+
+    .home-support a {
+      color: rgba(255, 255, 255, 0.2);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .home-support a:hover {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
     /* If you use a logo image, swap .home-name for:
        <img src="/assets/img/logo.png" alt="<?php echo SITE_NAME; ?>" class="home-logo-img" /> */
     .home-logo-img {
@@ -202,6 +221,10 @@
       <?php echo htmlspecialchars($_idx_tagline); ?>
     </span>
     <?php endif; ?>
+
+    <div class="home-support">
+      <a href="/donate">support this project</a>
+    </div>
 
   </div><!-- /.home-identity -->
 
