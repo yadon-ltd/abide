@@ -40,6 +40,7 @@ $_header_title = isset($page_title) ? $page_title : (defined('SITE_NAME') ? SITE
   <title><?php echo htmlspecialchars($_header_title); ?><?php echo $_header_title ? ' — ' . htmlspecialchars(SITE_NAME) : htmlspecialchars(SITE_NAME); ?></title>
 
   <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/assets/auth.css" />
 
   <?php
   /*
