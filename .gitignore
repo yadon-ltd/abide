@@ -26,6 +26,7 @@
 # ── Credentials ───────────────────────────────────────────────
 # Never commit real config — use config.example.php as the template
 config.php
+abide-collect.sh
 
 # ── macOS ─────────────────────────────────────────────────────
 .DS_Store

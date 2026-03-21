@@ -97,10 +97,6 @@
       letter-spacing: 0.2em;
       text-transform: uppercase;
       color: var(--text-dimmer);
-      text-align: center;
-      max-width: clamp(280px, 70vw, 560px);
-      line-height: 1.7;
-      word-break: break-word;
     }
 
     /* If you use a logo image, swap .home-name for:
