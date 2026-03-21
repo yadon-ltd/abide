@@ -206,7 +206,7 @@ function auth_login(string $email, string $password): array {
 
     // Always run password_verify — constant-time regardless of whether
     // the email exists. This prevents timing-based account enumeration.
-    $dummy_hash = '$2y$12$invalidhashpaddingtomakethisconsistentX00000000000000000';
+    $dummy_hash = '$2y$12$aFc0aIgTa/e7VAxYe0vAOeN1OaIzxt47RLe04f96Fn6jdZMB6/4gm';
     $hash       = $user ? $user['password_hash'] : $dummy_hash;
 
     if (!password_verify($password, $hash) || !$user) {
