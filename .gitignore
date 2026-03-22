@@ -52,3 +52,4 @@ modules/auth/phpmailer/
 modules/settings/schema.sql
 modules/auth/schema.sql
 modules/settings/schema.sql
+abide-audit-handoff.md
