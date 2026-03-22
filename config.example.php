@@ -91,3 +91,33 @@ define('NAV_STYLE', 'hamburger');
 define('LOGO_MODE', 'page_title');
 define('LOGO_FILE', '/assets/img/logo.png');
 define('LOGO_ALT',  SITE_NAME);
+
+
+// ── Logo Edge Fade ────────────────────────────────────────────
+// When true, applies a CSS mask to the header logo image so its
+// edges fade into the page background. Works with any image format
+// (JPG, PNG, etc.) — no transparent asset required.
+// Use false if your logo already has a transparent background and
+// you want precise edge control.
+define('LOGO_FADE_EDGES', false);
+
+
+// ── Footer ────────────────────────────────────────────────────
+// FOOTER_SUPPORT_URL:   URL for the left footer link.
+//                       Leave empty ('') to show no link.
+// FOOTER_SUPPORT_LABEL: Display text for the link.
+//                       Falls back to the URL if left empty.
+//
+// Example — link to a donate page:
+//   define('FOOTER_SUPPORT_URL',   '/donate');
+//   define('FOOTER_SUPPORT_LABEL', 'Support');
+define('FOOTER_SUPPORT_URL',   '');
+define('FOOTER_SUPPORT_LABEL', '');
+
+
+// ── Visitor Info ─────────────────────────────────────────────
+// When true, shows the visitor's IP address and browser name in
+// the footer. IP is resolved server-side ($_SERVER['REMOTE_ADDR'])
+// — no external requests are made.
+// Set to false to show nothing in the right footer slot.
+define('VISITOR_INFO_ENABLED', false);

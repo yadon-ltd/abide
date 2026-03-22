@@ -374,6 +374,14 @@ main {
   object-fit: contain;
 }
 
+/* Logo edge fade — LOGO_FADE_EDGES = true in config.php
+   Applies a radial gradient mask so logo edges blend into
+   the page background. Works with any image format. */
+.header-logo.logo-fade {
+  -webkit-mask-image: radial-gradient(ellipse 75% 75% at 50% 50%, black 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 75% 75% at 50% 50%, black 35%, transparent 100%);
+}
+
 /* Wordmark text — same visual language as .page-title */
 .brand-wordmark {
   font-family: var(--mono);
@@ -406,10 +414,12 @@ footer {
   justify-content: space-between;
   gap: 1rem;
   z-index: 400;
+  /* Required for .footer-copy absolute centering */
+  position: fixed;
 }
 
-/* Left: site name — links home */
-.footer-home a {
+/* Left: optional support link */
+.footer-left a {
   font-family: var(--mono);
   font-size: 0.62rem;
   letter-spacing: 0.1em;
@@ -420,26 +430,26 @@ footer {
   transition: opacity 0.2s ease, color 0.2s ease;
 }
 
-.footer-home a:hover {
+.footer-left a:hover {
   opacity: 1;
   color: var(--accent-dim);
 }
 
-/* Centre: copyright line */
+/* Centre: copyright line — absolutely centred on the page
+   so it is not affected by the width of the left or right elements */
 .footer-copy {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   font-family: var(--mono);
   font-size: 0.58rem;
   letter-spacing: 0.1em;
   color: rgba(216, 207, 196, 0.48);
-  text-align: center;
-  flex: 1;
+  white-space: nowrap;
+  pointer-events: none;   /* let clicks through to anything behind */
 }
 
-/* Right: visitor info (IP, browser) */
+/* Right: visitor info (IP, browser) — only rendered when VISITOR_INFO_ENABLED */
 .visitor-info {
   display: flex;
   gap: 1.5rem;
@@ -461,6 +471,11 @@ footer {
 
 .info-item .value {
   color: rgba(216, 207, 196, 0.62);
+}
+
+/* Right placeholder when visitor info is disabled — keeps layout balanced */
+.footer-right {
+  flex-shrink: 0;
 }
 
 

@@ -84,6 +84,10 @@ define('PERM_HEADEND',  4);   // owner / full access
  * Start the session with secure settings.
  * Call once near the top of any page that needs auth.
  * Idempotent — checks session status before calling session_start().
+ *
+ * Secure flag uses the same IIS-safe check as core/init.php:
+ * isset() alone is not sufficient because IIS sets HTTPS to the
+ * string 'off' rather than leaving it unset.
  */
 function auth_session_start(): void {
     if (session_status() !== PHP_SESSION_NONE) {
@@ -94,9 +98,9 @@ function auth_session_start(): void {
         'lifetime' => 0,        // browser-session cookie (expires on close)
         'path'     => '/',
         'domain'   => '',       // current domain
-        'secure'   => true,     // HTTPS only
+        'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
         'httponly' => true,     // inaccessible to JavaScript
-        'samesite' => 'Lax',    // CSRF protection
+        'samesite' => 'Lax',    // CSRF mitigation
     ]);
 
     session_start();
@@ -246,6 +250,7 @@ function auth_login(string $email, string $password): array {
 /**
  * Log out the current user and destroy the session.
  * Clears the session cookie in addition to destroying server-side data.
+ * Revokes all persistent tokens for this user (all devices).
  */
 function auth_logout(): void {
     auth_session_start();
@@ -287,6 +292,10 @@ function auth_logout(): void {
  * Registration can be disabled site-wide by setting
  * AUTH_REGISTRATION_OPEN = false in config.php.
  *
+ * Token security: the raw token is sent in the verification email
+ * link. Only the SHA-256 hash is stored in the database. If an
+ * attacker gains DB read access they cannot forge verification links.
+ *
  * @return array  ['ok' => true]
  *                ['ok' => false, 'error' => string]
  */
@@ -321,9 +330,10 @@ function auth_register(string $email, string $password): array {
     }
 
     // ── Create user ───────────────────────────────────────────
-    $hash    = password_hash($password, PASSWORD_BCRYPT);
-    $token   = bin2hex(random_bytes(32));            // 64-char hex token
-    $expires = date('Y-m-d H:i:s', time() + 86400); // 24-hour TTL
+    $hash        = password_hash($password, PASSWORD_BCRYPT);
+    $raw_token   = bin2hex(random_bytes(32));             // 64-char hex — sent in email link
+    $token_hash  = hash('sha256', $raw_token);            // only the hash is stored
+    $expires     = date('Y-m-d H:i:s', time() + 86400);  // 24-hour TTL
 
     $ins = $pdo->prepare(
         'INSERT INTO users
@@ -332,12 +342,13 @@ function auth_register(string $email, string $password): array {
              created_at, updated_at)
          VALUES (?, ?, \'tap\', 0, 0, ?, ?, NOW(), NOW())'
     );
-    $ins->execute([$email, $hash, $token, $expires]);
+    $ins->execute([$email, $hash, $token_hash, $expires]);
 
     $user_id = (int)$pdo->lastInsertId();
 
     // ── Send verification email ───────────────────────────────
-    $send = auth_send_verify_email($email, $token);
+    // Pass the raw (unhashed) token — it goes into the email link.
+    $send = auth_send_verify_email($email, $raw_token);
     if (!$send['ok']) {
         // Roll back the insert so the user can retry with a clean state
         $del = $pdo->prepare('DELETE FROM users WHERE id = ?');
@@ -407,14 +418,15 @@ function auth_mailer_send(string $to_email, string $subject, string $body_text):
 /**
  * Send an email verification link.
  *
- * Link format: SITE_URL/verify-email?token=<hex>
+ * Link format: SITE_URL/verify-email?token=<raw_hex>
+ * The raw token is placed in the link; the hash is what's stored.
  *
  * @return array  ['ok' => true] | ['ok' => false, 'error' => string]
  */
-function auth_send_verify_email(string $to_email, string $token): array {
+function auth_send_verify_email(string $to_email, string $raw_token): array {
     $site_name = defined('SITE_NAME') ? SITE_NAME : 'This site';
     $site_url  = defined('SITE_URL')  ? SITE_URL  : '';
-    $link      = $site_url . '/verify-email?token=' . urlencode($token);
+    $link      = $site_url . '/verify-email?token=' . urlencode($raw_token);
     $subject   = 'Verify your email address — ' . $site_name;
 
     $body = "Welcome to " . $site_name . ".\n\n"
@@ -431,8 +443,9 @@ function auth_send_verify_email(string $to_email, string $token): array {
 /**
  * Redeem an email verification token.
  *
- * Marks the account verified and clears the token so it cannot
- * be reused. Checks expiry before accepting.
+ * Hashes the incoming raw token before querying, matching the
+ * hash stored at registration. Marks the account verified and
+ * clears the token so it cannot be reused.
  *
  * @return array  ['ok' => true, 'email' => string]
  *                ['ok' => false, 'error' => string]
@@ -442,6 +455,9 @@ function auth_verify_email(string $token): array {
         return ['ok' => false, 'error' => 'Missing verification token.'];
     }
 
+    // Hash the incoming token to match what was stored at registration
+    $token_hash = hash('sha256', $token);
+
     $pdo  = db_connect();
     $stmt = $pdo->prepare(
         'SELECT id, email, email_verified, email_verify_expires
@@ -449,7 +465,7 @@ function auth_verify_email(string $token): array {
           WHERE email_verify_token = ?
           LIMIT 1'
     );
-    $stmt->execute([$token]);
+    $stmt->execute([$token_hash]);
     $user = $stmt->fetch();
 
     if (!$user) {
@@ -486,6 +502,9 @@ function auth_verify_email(string $token): array {
  * Returns ['ok' => true] regardless of whether the email exists
  * to prevent account enumeration.
  *
+ * Token security: raw token goes in the email link; only the
+ * SHA-256 hash is stored in the database.
+ *
  * @return array  ['ok' => true] always (errors logged server-side)
  */
 function auth_regenerate_verify(string $email): array {
@@ -503,8 +522,9 @@ function auth_regenerate_verify(string $email): array {
         return ['ok' => true];
     }
 
-    $token   = bin2hex(random_bytes(32));
-    $expires = date('Y-m-d H:i:s', time() + 86400); // 24-hour TTL
+    $raw_token  = bin2hex(random_bytes(32));             // raw token — goes in email link
+    $token_hash = hash('sha256', $raw_token);            // only hash stored in DB
+    $expires    = date('Y-m-d H:i:s', time() + 86400);  // 24-hour TTL
 
     $upd = $pdo->prepare(
         'UPDATE users
@@ -513,9 +533,9 @@ function auth_regenerate_verify(string $email): array {
                 updated_at           = NOW()
           WHERE id = ?'
     );
-    $upd->execute([$token, $expires, $user['id']]);
+    $upd->execute([$token_hash, $expires, $user['id']]);
 
-    auth_send_verify_email($email, $token); // best-effort; errors are logged
+    auth_send_verify_email($email, $raw_token); // best-effort; errors are logged
 
     return ['ok' => true];
 }
@@ -526,9 +546,10 @@ function auth_regenerate_verify(string $email): array {
 /**
  * Request a password reset for the given email address.
  *
- * Generates a reset token with a 1-hour TTL, stores it on the
- * user row, and sends a reset link. Only works for verified
- * accounts (unverified accounts cannot reset via email).
+ * Generates a reset token with a 1-hour TTL, stores only its
+ * SHA-256 hash, and sends the raw token in the reset link.
+ * Only works for verified accounts (unverified accounts cannot
+ * reset via email).
  *
  * Always returns ['ok' => true] — prevents address enumeration.
  *
@@ -555,8 +576,9 @@ function auth_request_password_reset(string $email): array {
     }
 
     // Generate token — 1-hour TTL (tighter window than email verification)
-    $token   = bin2hex(random_bytes(32));            // 64-char hex token
-    $expires = date('Y-m-d H:i:s', time() + 3600);  // 1-hour TTL
+    $raw_token  = bin2hex(random_bytes(32));             // raw token — sent in email link
+    $token_hash = hash('sha256', $raw_token);            // only hash stored in DB
+    $expires    = date('Y-m-d H:i:s', time() + 3600);   // 1-hour TTL
 
     $upd = $pdo->prepare(
         'UPDATE users
@@ -565,9 +587,9 @@ function auth_request_password_reset(string $email): array {
                 updated_at             = NOW()
           WHERE id = ?'
     );
-    $upd->execute([$token, $expires, $user['id']]);
+    $upd->execute([$token_hash, $expires, $user['id']]);
 
-    auth_send_reset_email($email, $token); // best-effort; errors are logged
+    auth_send_reset_email($email, $raw_token); // best-effort; errors are logged
 
     return ['ok' => true];
 }
@@ -576,14 +598,15 @@ function auth_request_password_reset(string $email): array {
 /**
  * Send a password reset link.
  *
- * Link format: SITE_URL/reset-password?token=<hex>
+ * Link format: SITE_URL/reset-password?token=<raw_hex>
+ * The raw token goes in the link; the hash is what's stored.
  *
  * @return array  ['ok' => true] | ['ok' => false, 'error' => string]
  */
-function auth_send_reset_email(string $to_email, string $token): array {
+function auth_send_reset_email(string $to_email, string $raw_token): array {
     $site_name = defined('SITE_NAME') ? SITE_NAME : 'This site';
     $site_url  = defined('SITE_URL')  ? SITE_URL  : '';
-    $link      = $site_url . '/reset-password?token=' . urlencode($token);
+    $link      = $site_url . '/reset-password?token=' . urlencode($raw_token);
     $subject   = 'Reset your password — ' . $site_name;
 
     $body = "You requested a password reset for your " . $site_name . " account.\n\n"
@@ -601,8 +624,8 @@ function auth_send_reset_email(string $to_email, string $token): array {
 /**
  * Validate a reset token without consuming it.
  *
- * Used on GET to verify the token before rendering the
- * new-password form. Does not modify any database state.
+ * Hashes the incoming raw token before querying, matching the
+ * hash stored at request time. Does not modify any database state.
  *
  * @return array  ['ok' => true, 'user_id' => int]
  *                ['ok' => false, 'error' => string]
@@ -612,6 +635,9 @@ function auth_check_reset_token(string $token): array {
         return ['ok' => false, 'error' => 'Missing reset token.'];
     }
 
+    // Hash the incoming token to match what was stored at request time
+    $token_hash = hash('sha256', $token);
+
     $pdo  = db_connect();
     $stmt = $pdo->prepare(
         'SELECT id, password_reset_expires
@@ -619,7 +645,7 @@ function auth_check_reset_token(string $token): array {
           WHERE password_reset_token = ?
           LIMIT 1'
     );
-    $stmt->execute([$token]);
+    $stmt->execute([$token_hash]);
     $user = $stmt->fetch();
 
     if (!$user) {
@@ -653,7 +679,8 @@ function auth_reset_password(string $token, string $new_password): array {
         return ['ok' => false, 'error' => 'Password must be at least 8 characters.'];
     }
 
-    // Re-validate in case the token expired between GET and POST
+    // Re-validate in case the token expired between GET and POST.
+    // auth_check_reset_token() hashes the token before querying.
     $check = auth_check_reset_token($token);
     if (!$check['ok']) {
         return $check;
@@ -737,7 +764,7 @@ function auth_issue_token(int $user_id): void {
     setcookie(REMEMBER_ME_COOKIE, $raw_token, [
         'expires'  => time() + REMEMBER_ME_TTL,
         'path'     => '/',
-        'secure'   => true,
+        'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
@@ -876,7 +903,7 @@ function auth_clear_token_cookie(): void {
     setcookie(REMEMBER_ME_COOKIE, '', [
         'expires'  => time() - 42000,
         'path'     => '/',
-        'secure'   => true,
+        'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
         'httponly' => true,
         'samesite' => 'Lax',
     ]);

@@ -53,6 +53,7 @@ abide/
 │   │   ├── css.php         # Dynamic CSS endpoint — serves DB token overrides
 │   │   ├── fonts/
 │   │   └── img/
+│   │       └── donate.png  # QR code for the donate page — add your own
 │   └── pages/              # Convention-routed pages
 │       ├── admin.php       # Site configuration — PERM_HEADEND only
 │       ├── profile.php     # User profile — all authenticated users
@@ -112,10 +113,10 @@ the web root and structurally unreachable.
 
 `public/.htaccess` uses `auto_prepend_file` to load `core/init.php` before  
 every request. On shared hosting, relative paths often don't resolve correctly.  
-Replace the default value with the absolute server path:
+Replace the placeholder value with the absolute server path:
 
 ```
-php_value auto_prepend_file /home/yourusername/abide/core/init.php
+php_value auto_prepend_file /home/yourusername/yoursite/core/init.php
 ```
 
 Find your absolute path in your hosting control panel or by checking the  
@@ -160,6 +161,12 @@ This adds the `remember_me` column to the `users` table and creates the
 Copy it to `public/assets/auth.css`. When `auth.css` is updated in `modules/auth/`,  
 copy it again.
 
+### 10. Add the donate QR image (optional)
+
+If you are using the donate page, place your QR code image at  
+`public/assets/img/donate.png`. The donate page references this path directly —  
+no external image requests are made.
+
 ---
 
 ## Configuration reference
@@ -170,11 +177,15 @@ See `config.example.php` for a full template with comments.
 Key constants:
 
 ```php
-define('AUTH_ENABLED',        true);    // loads modules/auth/auth.php
-define('REMEMBER_ME_ENABLED', false);   // persistent login tokens (requires user_tokens.sql)
-define('LOGO_MODE',           'both');  // 'page_title' | 'logo' | 'wordmark' | 'both'
-define('LOGO_FILE',           '/assets/img/logo.png');
-define('LOGO_ALT',            SITE_NAME);
+define('AUTH_ENABLED',          true);    // loads modules/auth/auth.php
+define('REMEMBER_ME_ENABLED',   false);   // persistent login tokens (requires user_tokens.sql)
+define('LOGO_MODE',             'both');  // 'page_title' | 'logo' | 'wordmark' | 'both'
+define('LOGO_FILE',             '/assets/img/logo.png');
+define('LOGO_ALT',              SITE_NAME);
+define('LOGO_FADE_EDGES',       false);   // CSS mask fade on logo edges — works with any image format
+define('FOOTER_SUPPORT_URL',    '/donate');  // left footer link — '' to hide
+define('FOOTER_SUPPORT_LABEL',  'Support');  // display text for the footer link
+define('VISITOR_INFO_ENABLED',  false);   // show IP + browser in footer — server-side, no external requests
 ```
 
 Identity values (site name, tagline, logo) can also be managed via the admin  
@@ -295,7 +306,7 @@ of something you ship, consider supporting continued development.
 
 <div align="center">
 
-[![Support via Cash App](https://chart.cashapp.com/v1/qr/cashtag?data=%24yltdabide&size=180)](https://cash.app/$yltdabide)
+![Scan to pay via Cash App](public/assets/img/donate.png)
 
 **[$yltdabide](https://cash.app/$yltdabide)**
 

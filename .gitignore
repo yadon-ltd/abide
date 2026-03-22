@@ -1,39 +1,14 @@
-# the composer package lock file and install directory
-# Commit your application's lock file http://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file
-# You may choose to ignore a library lock file http://getcomposer.org/doc/02-libraries.md#lock-file
-# /composer.lock
-/fuel/vendor
-
-# the fuelphp document
-/docs/
-
-# you may install these packages with `oil package`.
-# http://fuelphp.com/docs/packages/oil/package.html
-# /fuel/packages/auth/
-# /fuel/packages/email/
-# /fuel/packages/oil/
-# /fuel/packages/orm/
-# /fuel/packages/parser/
-
-# dynamically generated files
-/fuel/app/logs/*/*/*
-/fuel/app/cache/*/*
-/fuel/app/config/crypt.php
-
-# Abide-specific additions
-# Add these to the bottom of the FuelPHP .gitignore GitHub generated
-
-# ── Credentials ───────────────────────────────────────────────
+# ── Credentials (per deploy.conf) ─────────────────────────────
 # Never commit real config — use config.example.php as the template
 config.php
-abide-collect.sh
+config.masked.php
+public/.htaccess
+public/.htaccess.masked
 
-# ── macOS ─────────────────────────────────────────────────────
+# ── OS junk ───────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
 .LSOverride
-
-# ── Windows ───────────────────────────────────────────────────
 Thumbs.db
 desktop.ini
 
@@ -41,15 +16,22 @@ desktop.ini
 *.log
 /logs/
 
-# ── Dependencies (if Composer is ever added) ──────────────────
+# ── Dependencies ──────────────────────────────────────────────
 /vendor/
 
-# ── Setup wizard ──────────────────────────────────────────────
-# Uncomment after first run to prevent wizard from being exposed in production
-# /setup/
+# ── Schema files ──────────────────────────────────────────────
 modules/auth/schema.sql
+modules/settings/schema.sql
+
+# ── Auth module vendored dependency ───────────────────────────
 modules/auth/phpmailer/
-modules/settings/schema.sql
-modules/auth/schema.sql
-modules/settings/schema.sql
+
+# ── Other ─────────────────────────────────────────────────────
+abide-collect.sh
 abide-audit-handoff.md
+files.zip
+*.zip
+
+# ── Setup wizard ──────────────────────────────────────────────
+# Uncomment after first run to prevent wizard exposure in production
+# /setup/
